@@ -1,8 +1,10 @@
-# CMX Diary — 私人长毛象 / 朋友圈 Beta 范围
+# PI OS — 私人长毛象 / 朋友圈 Beta 范围
 
 ## 项目定位
 
-这是一个只服务少量受邀账号的私人数字自留地。
+**PI = π / Personal Instance OS。**
+
+这是一个只服务少量受邀账号的私人数字自留地，与 AI OS（memory + operation）平行存在。
 
 核心不是“让 AI 回复所有内容”，而是提供一个独立于聊天系统的生活时间线：动态可以被发布、保存、浏览，也可以无人回应。AI 与 Bot 只是拥有有限权限的居民账号，不是全局监控器或默认旁白。
 
@@ -10,6 +12,7 @@
 
 - 使用原版 Mastodon 作为稳定后端，当前不 fork、不魔改核心代码。
 - 部署在家中闲置 Windows 电脑，本地项目目录：`D:\AI\个人实例（长毛象+朋友圈 beta）`。
+- 先完成 GitHub 部署包，再迁移到本地；当前不让 Codex 介入。
 - 通过 Cloudflare Named Tunnel 提供 HTTPS 访问，不开放家庭路由器入站端口。
 - 主要使用场景是本人手机端访问；优先保证登录、时间线、发图和通知顺畅。
 - 关闭公开注册；后续最多按需开放邀请。
@@ -27,22 +30,23 @@
 Cloudflare Named Tunnel
         │
         ▼
-本机 Mastodon
-├─ Web / Streaming / Sidekiq
-├─ PostgreSQL
-├─ Redis
-└─ 本地媒体目录
+Nginx
+├─ Mastodon Web
+└─ Mastodon Streaming
+        │
+        ▼
+Sidekiq / PostgreSQL / Redis / 本地媒体
 ```
 
 主站不套 Cloudflare Access，避免阻断 Mastodon 客户端 OAuth、API 与流式连接。管理工具如未来存在，可使用独立子域名并套 Cloudflare Access。
 
-## 今日 MVP 验收
+## MVP 验收
 
-今天只要求完成：
+本地迁移时只要求完成：
 
 - [ ] 本地服务可以启动。
 - [ ] Cloudflare Tunnel 域名可以打开 Mastodon。
-- [ ] 创建本人管理员账号。
+- [ ] 创建本人 Owner 账号。
 - [ ] 关闭公开注册。
 - [ ] 手机 Mastodon 客户端可以完成 OAuth 登录。
 - [ ] 手机可以发布文字和至少一张图片。
@@ -50,21 +54,22 @@ Cloudflare Named Tunnel
 - [ ] 电脑或服务重启后，容器与 Tunnel 可以恢复。
 - [ ] 确认 `.env`、Tunnel 凭据、数据库和媒体未进入 Git。
 
-满足以上条件即视为 Beta 部署完成。今天不继续扩范围。
+满足以上条件即视为 Beta 部署完成，不继续扩范围。
 
-## 今天明确不做
+## 明确不做
 
 - 不做朋友圈主题或前端重写。
 - 不接入 Cyberlink、Telegram、记忆系统或 520 面板。
 - 不创建会扫描全部动态的 AI Agent。
 - 不做全文搜索、对象存储、邮件营销、公共联邦或复杂权限系统。
 - 不为了“以后也许需要”提前搭建额外服务。
+- 不做多轮审计、性能压测或反复全量检查；只做一次最终 smoke，失败时只修失败点。
 
 ## 后续增量
 
 按真实使用需求逐项添加，而不是一次性设计完整生态：
 
-1. 自动备份与恢复演练。
+1. 实际恢复演练和离线加密备份。
 2. 独立 AI / Bot 账号及最小 API 权限。
 3. 天气、收藏或日记类 Bot。
 4. 更接近朋友圈的移动端主题或独立前端。
