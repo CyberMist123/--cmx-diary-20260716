@@ -5,6 +5,19 @@ $ErrorActionPreference = "Continue"
 Set-Location -LiteralPath $PSScriptRoot
 
 $failures = New-Object System.Collections.Generic.List[string]
+$identityDomainExpected = "pi.invalid"
+
+function Get-EnvValue {
+  param(
+    [Parameter(Mandatory)][string]$Path,
+    [Parameter(Mandatory)][string]$Key
+  )
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  $escaped = [regex]::Escape($Key)
+  $line = Get-Content -LiteralPath $Path | Where-Object { $_ -match "^$escaped=" } | Select-Object -Last 1
+  if ($null -eq $line) { return $null }
+  return ($line -replace "^$escaped=", "")
+}
 
 & docker info *> $null
 if ($LASTEXITCODE -ne 0) {
@@ -12,7 +25,40 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 
-Write-Host "=== Containers ===" -ForegroundColor Cyan
+Write-Host "=== Domain configuration ===" -ForegroundColor Cyan
+$identityDomain = Get-EnvValue -Path ".env.production" -Key "LOCAL_DOMAIN"
+$webDomain = Get-EnvValue -Path ".env.production" -Key "WEB_DOMAIN"
+$streamingBase = Get-EnvValue -Path ".env.production" -Key "STREAMING_API_BASE_URL"
+$alternateDomains = Get-EnvValue -Path ".env.production" -Key "ALTERNATE_DOMAINS"
+
+if ($identityDomain -eq $identityDomainExpected) {
+  Write-Host "Permanent identity: $identityDomain (OK)" -ForegroundColor Green
+} else {
+  Write-Host "Permanent identity: FAIL - expected $identityDomainExpected, found $identityDomain" -ForegroundColor Red
+  $failures.Add("LOCAL_DOMAIN is not fixed to pi.invalid")
+}
+
+if (-not [string]::IsNullOrWhiteSpace($webDomain) -and $webDomain -ne $identityDomainExpected) {
+  Write-Host "Current web entrance: https://$webDomain" -ForegroundColor Green
+} else {
+  Write-Host "Current web entrance: FAIL - WEB_DOMAIN is missing or invalid" -ForegroundColor Red
+  $failures.Add("WEB_DOMAIN is missing or invalid")
+}
+
+if ($streamingBase -eq "wss://$webDomain") {
+  Write-Host "Streaming base: $streamingBase (OK)" -ForegroundColor Green
+} else {
+  Write-Host "Streaming base: FAIL - expected wss://$webDomain, found $streamingBase" -ForegroundColor Red
+  $failures.Add("STREAMING_API_BASE_URL does not match WEB_DOMAIN")
+}
+
+if ([string]::IsNullOrWhiteSpace($alternateDomains)) {
+  Write-Host "Alternate domains: none" -ForegroundColor Green
+} else {
+  Write-Host "Alternate domains (transition only): $alternateDomains" -ForegroundColor Yellow
+}
+
+Write-Host "`n=== Containers ===" -ForegroundColor Cyan
 & docker compose --profile tunnel ps
 if ($LASTEXITCODE -ne 0) {
   $failures.Add("docker compose ps failed")
@@ -52,20 +98,12 @@ if ($LASTEXITCODE -eq 0) {
   $failures.Add("Sidekiq worker is not running")
 }
 
-$domainLine = if (Test-Path ".env.production") {
-  Get-Content ".env.production" | Where-Object { $_ -match "^LOCAL_DOMAIN=" } | Select-Object -Last 1
-} else { $null }
-$domain = if ($domainLine) { $domainLine -replace "^LOCAL_DOMAIN=", "" } else { "" }
-$tokenLine = if (Test-Path ".env") {
-  Get-Content ".env" | Where-Object { $_ -match "^CLOUDFLARE_TUNNEL_TOKEN=" } | Select-Object -Last 1
-} else { $null }
-$token = if ($tokenLine) { $tokenLine -replace "^CLOUDFLARE_TUNNEL_TOKEN=", "" } else { "" }
-
-if (-not [string]::IsNullOrWhiteSpace($token) -and $token -ne "MISSING" -and -not [string]::IsNullOrWhiteSpace($domain)) {
-  Write-Host "`n=== Public path ===" -ForegroundColor Cyan
+$token = Get-EnvValue -Path ".env" -Key "CLOUDFLARE_TUNNEL_TOKEN"
+if (-not [string]::IsNullOrWhiteSpace($token) -and $token -ne "MISSING" -and -not [string]::IsNullOrWhiteSpace($webDomain)) {
+  Write-Host "`n=== Public web entrance ===" -ForegroundColor Cyan
 
   try {
-    $public = Invoke-WebRequest -UseBasicParsing -Uri "https://$domain/_pi/health" -TimeoutSec 15
+    $public = Invoke-WebRequest -UseBasicParsing -Uri "https://$webDomain/_pi/health" -TimeoutSec 15
     if ($public.StatusCode -ne 200) { throw "HTTP $($public.StatusCode)" }
     Write-Host "Tunnel and Nginx: OK" -ForegroundColor Green
   } catch {
@@ -74,16 +112,26 @@ if (-not [string]::IsNullOrWhiteSpace($token) -and $token -ne "MISSING" -and -no
   }
 
   try {
-    $instance = Invoke-WebRequest -UseBasicParsing -Uri "https://$domain/api/v2/instance" -TimeoutSec 15
-    if ($instance.StatusCode -ne 200) { throw "HTTP $($instance.StatusCode)" }
-    Write-Host "Public Mastodon API discovery: OK" -ForegroundColor Green
+    $instanceResponse = Invoke-WebRequest -UseBasicParsing -Uri "https://$webDomain/api/v2/instance" -TimeoutSec 15
+    if ($instanceResponse.StatusCode -ne 200) { throw "HTTP $($instanceResponse.StatusCode)" }
+    $instance = $instanceResponse.Content | ConvertFrom-Json
+
+    if ($instance.domain -ne $identityDomainExpected) {
+      throw "instance.domain is $($instance.domain), expected $identityDomainExpected"
+    }
+    $reportedStreaming = [string]$instance.configuration.urls.streaming
+    if ($reportedStreaming -ne "wss://$webDomain") {
+      throw "reported streaming URL is $reportedStreaming, expected wss://$webDomain"
+    }
+
+    Write-Host "Instance identity + current web metadata: OK" -ForegroundColor Green
   } catch {
-    Write-Host "Public Mastodon API discovery: FAIL - $($_.Exception.Message)" -ForegroundColor Red
-    $failures.Add("public Mastodon API discovery failed")
+    Write-Host "Instance metadata: FAIL - $($_.Exception.Message)" -ForegroundColor Red
+    $failures.Add("public instance identity/web metadata failed")
   }
 
   try {
-    $streamPublic = Invoke-WebRequest -UseBasicParsing -Uri "https://$domain/api/v1/streaming/health" -TimeoutSec 15
+    $streamPublic = Invoke-WebRequest -UseBasicParsing -Uri "https://$webDomain/api/v1/streaming/health" -TimeoutSec 15
     if ($streamPublic.StatusCode -ne 200) { throw "HTTP $($streamPublic.StatusCode)" }
     Write-Host "Public streaming route: OK" -ForegroundColor Green
   } catch {
@@ -94,7 +142,7 @@ if (-not [string]::IsNullOrWhiteSpace($token) -and $token -ne "MISSING" -and -no
 
 Write-Host "`n=== Git safety ===" -ForegroundColor Cyan
 if (Get-Command git -ErrorAction SilentlyContinue) {
-  $trackedSensitive = @(& git ls-files -- .env .env.production .pi-os-initialized data backups .cloudflared 2>$null)
+  $trackedSensitive = @(& git ls-files -- .env .env.production .pi-os-initialized data backups logs .cloudflared 2>$null)
   if ($trackedSensitive.Count -eq 0) {
     Write-Host "Runtime secrets/data tracked by Git: none" -ForegroundColor Green
   } else {
@@ -108,6 +156,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 Write-Host ""
 if ($failures.Count -eq 0) {
   Write-Host "PI OS smoke check passed." -ForegroundColor Green
+  Write-Host "Browser-only checks still required: sign in, read old content, publish text + image, and confirm live updates."
   exit 0
 }
 
