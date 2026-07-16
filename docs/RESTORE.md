@@ -53,7 +53,7 @@ tar.exe -xzf ".\backups\pi-os-YYYYMMDD-HHMMSS\media.tar.gz" -C ".\data\media"
 
 ## 4. 恢复 PostgreSQL
 
-只启动数据库：
+只启动数据库和 Redis：
 
 ```powershell
 docker compose up -d db redis
@@ -85,7 +85,17 @@ docker compose exec -T db pg_restore `
 
 `--exit-on-error` 可以避免恢复一半仍继续运行。若命令失败，先保留现场并查看第一条错误，不要直接启动应用。
 
-## 5. 启动并检查一次
+## 5. 清空旧 Redis 队列与缓存
+
+本备份方案不把 Redis 队列当作需要跨快照恢复的长期数据。同一台电脑恢复较旧的 PostgreSQL 快照时，原 Redis volume 里可能仍留有指向新数据的 Sidekiq 作业、重试和时间线缓存，因此在启动应用前清空：
+
+```powershell
+docker compose exec -T redis redis-cli FLUSHALL
+```
+
+这会丢弃尚未执行的后台任务和缓存，但不会删除 PostgreSQL 中的账号、动态、关系或媒体记录。Home/list feed 缓存会由 Mastodon 重新生成。
+
+## 6. 启动并检查一次
 
 ```powershell
 .\start.ps1
@@ -99,7 +109,7 @@ docker compose exec -T db pg_restore `
 - 图片和视频可见。
 - 新发一条测试动态后 Sidekiq 与 streaming 正常。
 
-## 6. 新电脑或 Docker 数据盘损坏时
+## 7. 新电脑或 Docker 数据盘损坏时
 
 Docker named volume 本身不需要从文件系统复制；只要 `.env`、`.env.production`、数据库 dump 和媒体归档还在，就可以在空 volume 中按上面的流程重建。
 
@@ -116,4 +126,4 @@ Docker named volume 本身不需要从文件系统复制；只要 `.env`、`.env
 
 `backup.ps1` 会短暂停止 Web、Streaming、Sidekiq 和公网入口，以得到数据库与媒体处于同一时间点的快照；完成后会恢复此前运行状态。
 
-快照仍是本地明文，其中包含账号密钥、数据库和私人媒体。至少保留一份放在加密磁盘或加密归档中的离线副本。
+快照仍是本地明文，其中包含账号数据库、私人媒体、Cloudflare Tunnel token，以及 `SECRET_KEY_BASE`、`OTP_SECRET`、`ACTIVE_RECORD_ENCRYPTION_*` 和 VAPID keys。至少保留一份放在加密磁盘或加密归档中的离线副本。
