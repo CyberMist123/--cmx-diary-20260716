@@ -64,7 +64,7 @@ function New-RandomBytes {
   $bytes = New-Object byte[] $Count
   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
   try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
-  return $bytes
+  return ,$bytes
 }
 
 function New-RandomHex {
@@ -176,7 +176,7 @@ $vapidPrivate = Get-EnvValue -Path ".env.production" -Key "VAPID_PRIVATE_KEY"
 $vapidPublic = Get-EnvValue -Path ".env.production" -Key "VAPID_PUBLIC_KEY"
 if ($ResetSecrets -or [string]::IsNullOrWhiteSpace($vapidPrivate) -or [string]::IsNullOrWhiteSpace($vapidPublic)) {
   Write-Host "Generating Web Push keys..." -ForegroundColor Cyan
-  $vapidOutput = & docker compose run --rm --no-deps web bundle exec rails mastodon:webpush:generate_vapid_key 2>&1
+  $vapidOutput = & docker compose run --rm --no-deps web bundle exec rake mastodon:webpush:generate_vapid_key 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw "VAPID key generation failed:`n$($vapidOutput -join "`n")"
   }
