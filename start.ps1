@@ -17,7 +17,7 @@ $tokenLine = Get-Content -LiteralPath ".env" | Where-Object { $_ -match "^CLOUDF
 $token = if ($tokenLine) { $tokenLine -replace "^CLOUDFLARE_TUNNEL_TOKEN=", "" } else { "" }
 
 if ([string]::IsNullOrWhiteSpace($token) -or $token -eq "MISSING") {
-  & docker compose stop cloudflared *> $null
+  & docker compose --profile tunnel stop cloudflared *> $null
   & docker compose up -d
 } else {
   & docker compose --profile tunnel up -d
