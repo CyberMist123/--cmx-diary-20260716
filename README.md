@@ -31,19 +31,27 @@ Nginx
    ├─ Mastodon Web
    └─ Mastodon Streaming
         ↓
-PostgreSQL / Redis / 本地媒体
+Sidekiq / PostgreSQL / Redis / 本地媒体
 ```
 
-默认关闭公开注册和外部联邦。主站不套 Cloudflare Access，以保证 iOS OAuth、API 和 streaming 正常。
+默认关闭公开注册并启用 limited federation。主站不套 Cloudflare Access，以保证 iOS OAuth、API 和 streaming 正常。
 
 ## 部署入口
 
+- [系统是怎么搭的](docs/ARCHITECTURE.md)
 - [需求与停止线](docs/MVP_SCOPE.md)
 - [Windows 一次部署](docs/DEPLOYMENT.md)
 - [Cloudflare Tunnel](docs/CLOUDFLARE.md)
 - [备份恢复](docs/RESTORE.md)
+- [交给 Claude 做一次只读审计](docs/CLAUDE_REVIEW.md)
 
-本地克隆后运行：
+本地目录：
+
+```text
+D:\AI\PI-Personal-Instance-OS
+```
+
+克隆后运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
@@ -67,10 +75,13 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```text
 .env
 .env.production
+.pi-os-initialized
 data/
 backups/
 Cloudflare token / credentials
 ```
+
+PostgreSQL 与 Redis 使用本机 Docker named volumes；上传媒体和备份保存在项目目录。不要运行 `docker compose down -v`。
 
 ## 初心
 
