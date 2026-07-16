@@ -54,6 +54,10 @@ try {
   & docker compose exec -T db pg_dump -U mastodon -d mastodon_production -Fc -f "/backups/$snapshotName/database.dump"
   if ($LASTEXITCODE -ne 0) { throw "PostgreSQL backup failed." }
 
+  Write-Host "Validating PostgreSQL dump..." -ForegroundColor Cyan
+  & docker compose exec -T db pg_restore --list "/backups/$snapshotName/database.dump" *> $null
+  if ($LASTEXITCODE -ne 0) { throw "PostgreSQL dump was created but could not be read back." }
+
   Copy-Item -LiteralPath ".env" -Destination (Join-Path $snapshotPath ".env")
   Copy-Item -LiteralPath ".env.production" -Destination (Join-Path $snapshotPath ".env.production")
   Copy-Item -LiteralPath "compose.yml" -Destination (Join-Path $snapshotPath "compose.yml")
@@ -74,9 +78,14 @@ try {
     if (Test-Path -LiteralPath ".\data\media") {
       $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
       if ($tar) {
+        $mediaArchive = Join-Path $snapshotPath "media.tar.gz"
         Write-Host "Archiving uploaded media..." -ForegroundColor Cyan
-        & $tar.Source -czf (Join-Path $snapshotPath "media.tar.gz") -C (Join-Path $PSScriptRoot "data\media") .
+        & $tar.Source -czf $mediaArchive -C (Join-Path $PSScriptRoot "data\media") .
         if ($LASTEXITCODE -ne 0) { throw "Media archive failed." }
+
+        Write-Host "Validating media archive..." -ForegroundColor Cyan
+        & $tar.Source -tzf $mediaArchive *> $null
+        if ($LASTEXITCODE -ne 0) { throw "Media archive was created but could not be read back." }
       } else {
         throw "tar.exe is unavailable. Re-run with -SkipMedia only if a database-only backup is intentional."
       }
