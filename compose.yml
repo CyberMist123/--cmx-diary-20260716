@@ -138,7 +138,7 @@ services:
     restart: unless-stopped
     profiles:
       - tunnel
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-MISSING}
     depends_on:
       nginx:
         condition: service_healthy
