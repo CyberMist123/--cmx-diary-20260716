@@ -3,8 +3,7 @@ param(
   [string]$Domain,
   [string]$AdminUsername = "owner",
   [string]$AdminEmail,
-  [string]$TunnelToken,
-  [switch]$ResetSecrets
+  [string]$TunnelToken
 )
 
 $ErrorActionPreference = "Stop"
@@ -117,9 +116,6 @@ if ($Domain -match "://" -or $Domain -match "/" -or $Domain -notmatch "^[a-z0-9.
   throw "Invalid domain: $Domain. Enter only a hostname such as pi.example.com."
 }
 
-if ($initialized -and $ResetSecrets) {
-  throw "PI OS is already initialized. Resetting encryption secrets can destroy access to stored data. Restore from backup instead."
-}
 if ($initialized -and -not [string]::IsNullOrWhiteSpace($existingDomain) -and $existingDomain -ne $Domain) {
   throw "PI OS is already initialized as $existingDomain. LOCAL_DOMAIN cannot be changed safely to $Domain."
 }
@@ -148,7 +144,7 @@ if ($null -eq $TunnelToken) {
 $TunnelToken = $TunnelToken.Trim()
 
 $dbPassword = Get-EnvValue -Path ".env" -Key "POSTGRES_PASSWORD"
-if ($ResetSecrets -or [string]::IsNullOrWhiteSpace($dbPassword) -or $dbPassword -like "CHANGE_ME*") {
+if ([string]::IsNullOrWhiteSpace($dbPassword) -or $dbPassword -like "CHANGE_ME*") {
   $dbPassword = New-RandomHex -Count 32
 }
 
@@ -176,7 +172,7 @@ $secretSpecs = @(
 
 foreach ($spec in $secretSpecs) {
   $current = Get-EnvValue -Path ".env.production" -Key $spec.Key
-  if ($ResetSecrets -or [string]::IsNullOrWhiteSpace($current)) {
+  if ([string]::IsNullOrWhiteSpace($current)) {
     $value = if ($spec.Kind -eq "hex") {
       New-RandomHex -Count $spec.Bytes
     } else {
@@ -215,7 +211,7 @@ if (-not $dbReady) {
 
 $vapidPrivate = Get-EnvValue -Path ".env.production" -Key "VAPID_PRIVATE_KEY"
 $vapidPublic = Get-EnvValue -Path ".env.production" -Key "VAPID_PUBLIC_KEY"
-if ($ResetSecrets -or [string]::IsNullOrWhiteSpace($vapidPrivate) -or [string]::IsNullOrWhiteSpace($vapidPublic)) {
+if ([string]::IsNullOrWhiteSpace($vapidPrivate) -or [string]::IsNullOrWhiteSpace($vapidPublic)) {
   Write-Host "Generating Web Push keys..." -ForegroundColor Cyan
   $vapidOutput = & docker compose run --rm --no-deps web bundle exec rake mastodon:webpush:generate_vapid_key 2>&1
   if ($LASTEXITCODE -ne 0) {
