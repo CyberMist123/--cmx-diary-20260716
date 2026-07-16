@@ -30,6 +30,8 @@ data/media  图片和视频文件
 
 所有服务由 `compose.yml` 管理。Mastodon 使用固定官方镜像，不 fork 上游源码。
 
+PostgreSQL 容器只接收显式的 `POSTGRES_DB`、`POSTGRES_USER` 和 `POSTGRES_PASSWORD`；Cloudflare Tunnel token 不注入数据库容器。
+
 ## 3. 对外与本地接口
 
 ### 公网 HTTP
@@ -47,11 +49,11 @@ data/media  图片和视频文件
 
 ### 运维脚本
 
-- `setup.ps1`：首次初始化；生成密钥、建库、创建 Owner、关闭注册并启动。
+- `setup.ps1`：首次初始化；生成密钥、建库、创建已确认且已批准的 Owner、关闭注册并启动；首次冷启动最多等待约 5 分钟。
 - `start.ps1`：启动现有实例。
 - `stop.ps1`：停止容器，不删除数据。
 - `status.ps1`：一次 smoke；检查 Web、Streaming、Sidekiq、公网入口和 Git 安全。
-- `backup.ps1`：短暂停应用，导出并验证数据库与媒体归档，再恢复运行状态。
+- `backup.ps1`：短暂停应用，导出并验证数据库与媒体归档，再恢复运行状态。Redis 不作为长期快照内容。
 - `install-autostart.ps1` / `安装开机自启.bat`：安装登录后自动恢复任务。
 - `remove-autostart.ps1` / `卸载开机自启.bat`：移除自动启动，不动容器和数据。
 
@@ -62,11 +64,19 @@ data/media  图片和视频文件
 ```text
 clone 到 D:\AI\PI-Personal-Instance-OS
 → setup.ps1
+→ 立即保存终端只显示一次的 Owner 密码
 → Cloudflare hostname 指向 nginx:80
 → status.ps1 一次
 → iOS 登录、发文字和图片
 → backup.ps1 一次
 → 双击 安装开机自启.bat
+```
+
+如果 Owner 密码丢失但仍能进入本机：
+
+```powershell
+docker compose run --rm --no-deps web `
+  bin/tootctl accounts modify owner --reset-password --enable --approve
 ```
 
 ### 每次开机
@@ -104,6 +114,18 @@ Windows 用户登录
 → 恢复原运行状态
 ```
 
+### 恢复流程
+
+```text
+恢复 .env / .env.production / PostgreSQL / media
+→ FLUSHALL 清空旧 Redis 队列和缓存
+→ start.ps1
+→ status.ps1
+→ 手机确认旧数据和新发图
+```
+
+不把 Redis 队列跨快照恢复；同机回滚 PostgreSQL 后必须清空 Redis，避免旧队列和缓存指向不存在的数据。
+
 ## 5. 数据位置
 
 ```text
@@ -137,6 +159,6 @@ D:\AI\PI-Personal-Instance-OS
 
 ## 7. 当前状态与下一步
 
-GitHub 部署包、备份、恢复、一次 smoke、开机登录后自动恢复和项目事实同步 skill 已准备好；尚未在目标电脑完成真实部署。
+GitHub 部署包、备份、恢复、一次 smoke、开机登录后自动恢复和项目事实同步 skill 已准备好；Claude 的首次只读审计 P1 已处理：Owner 显式 approve、Redis 回滚策略、数据库容器密钥隔离、首次冷启动等待和密码恢复说明。
 
-下一步只有：确定最终域名、clone、首次运行、手机验收。通过后停止扩范围。
+尚未在目标电脑完成真实部署。下一步只有：确定最终域名、clone、首次运行、手机验收。通过后停止扩范围。
