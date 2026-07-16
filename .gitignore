@@ -1,0 +1,42 @@
+# Secrets and runtime configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Cloudflare Tunnel credentials
+.cloudflared/
+cloudflared/*.json
+cloudflared/cert.pem
+
+# Mastodon runtime data
+postgres/
+postgres-data/
+redis/
+redis-data/
+public/system/
+media/
+uploads/
+backups/
+logs/
+*.log
+
+# Docker / local overrides
+docker-compose.override.yml
+compose.override.yml
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Windows / WSL local helpers
+*.local.bat
+*.local.ps1
+*.local.sh
