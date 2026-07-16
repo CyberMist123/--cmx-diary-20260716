@@ -235,7 +235,8 @@ Write-Host "Preparing Mastodon database..." -ForegroundColor Cyan
 Invoke-Docker -Arguments @("compose", "run", "--rm", "--no-deps", "web", "bundle", "exec", "rails", "db:prepare")
 
 Write-Host "Creating owner account..." -ForegroundColor Cyan
-$accountOutput = & docker compose run --rm --no-deps web bin/tootctl accounts create $AdminUsername --email $AdminEmail --confirmed --role Owner 2>&1
+Write-Host "IMPORTANT: the generated owner password is printed only once. Save it in a password manager before this window is closed." -ForegroundColor Yellow
+$accountOutput = & docker compose run --rm --no-deps web bin/tootctl accounts create $AdminUsername --email $AdminEmail --confirmed --approve --role Owner 2>&1
 $accountExit = $LASTEXITCODE
 $accountText = $accountOutput -join "`n"
 if ($accountExit -ne 0 -and $accountText -notmatch "already exists|has already been taken") {
@@ -243,10 +244,10 @@ if ($accountExit -ne 0 -and $accountText -notmatch "already exists|has already b
 }
 if ($accountExit -eq 0) {
   Write-Host $accountText -ForegroundColor Green
-  Write-Host "Save the generated owner password now." -ForegroundColor Yellow
+  Write-Host "SAVE THE OWNER PASSWORD ABOVE NOW. It will not be written to a file." -ForegroundColor Yellow
 } else {
   Write-Warning "Owner account already exists; keeping it and continuing."
-  Invoke-Docker -Arguments @("compose", "run", "--rm", "--no-deps", "web", "bin/tootctl", "accounts", "modify", $AdminUsername, "--role", "Owner", "--enable")
+  Invoke-Docker -Arguments @("compose", "run", "--rm", "--no-deps", "web", "bin/tootctl", "accounts", "modify", $AdminUsername, "--role", "Owner", "--enable", "--approve")
 }
 
 Write-Host "Closing public registrations..." -ForegroundColor Cyan
@@ -260,8 +261,9 @@ if ([string]::IsNullOrWhiteSpace($TunnelToken)) {
   Invoke-Docker -Arguments @("compose", "--profile", "tunnel", "up", "-d")
 }
 
+Write-Host "Waiting up to 5 minutes for the first Mastodon/Nginx boot..." -ForegroundColor Cyan
 $healthy = $false
-for ($attempt = 1; $attempt -le 40; $attempt++) {
+for ($attempt = 1; $attempt -le 100; $attempt++) {
   try {
     $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8080/_pi/health" -TimeoutSec 3
     if ($response.StatusCode -eq 200) {
@@ -273,7 +275,7 @@ for ($attempt = 1; $attempt -le 40; $attempt++) {
   }
 }
 if (-not $healthy) {
-  throw "Nginx did not become healthy. Run .\status.ps1 and inspect container logs."
+  throw "Nginx did not become healthy within about 5 minutes. Preserve the current data and run .\status.ps1; do not delete volumes or restart setup from scratch."
 }
 
 @(
