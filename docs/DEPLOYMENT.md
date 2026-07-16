@@ -47,11 +47,22 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 - 校验 Compose 配置并拉取固定镜像。
 - 启动 PostgreSQL 与 Redis。
 - 初始化数据库。
-- 创建并确认 Owner 账号。
+- 创建、确认、批准并赋予 Owner 角色。
 - 关闭公开注册。
 - 启动 Mastodon Web、Streaming、Sidekiq、Nginx，以及可选的 `cloudflared`。
 
-Owner 创建成功后，Mastodon CLI 会输出一次性初始密码。立即保存。
+Owner 创建成功后，Mastodon CLI 会输出随机初始密码。**密码只显示一次，也不会写入任何文件。看到 `New password:` 后立刻复制到密码管理器，再关闭窗口。**
+
+首次冷启动在 Windows Docker Desktop 上可能需要几分钟。脚本会等待约 5 分钟；若最后仍超时，保留当前容器和 volume，运行 `status.ps1` 查看失败点。不要删除数据后从头重跑。
+
+忘记初始密码且仍能进入本机时，用下面的命令生成新密码：
+
+```powershell
+docker compose run --rm --no-deps web `
+  bin/tootctl accounts modify owner --reset-password --enable --approve
+```
+
+把 `owner` 替换成初始化时使用的用户名。命令会撤销旧会话/token，并在终端打印新密码。
 
 ## 3. 数据放在哪里
 
@@ -163,7 +174,7 @@ powershell -ExecutionPolicy Bypass -File .\remove-autostart.ps1
 
 ## 8. 邮件边界
 
-第一版 Owner 账号由 CLI 直接确认，因此可以没有 SMTP。
+第一版 Owner 账号由 CLI 直接确认和批准，因此可以没有 SMTP。
 
 但在以下功能启用前必须配置 SMTP：
 
@@ -172,7 +183,7 @@ powershell -ExecutionPolicy Bypass -File .\remove-autostart.ps1
 - 通过网页邀请或注册其他真人账号。
 - 系统安全通知。
 
-没有 SMTP 时，不要把唯一 Owner 密码弄丢。也可以通过本机 `tootctl accounts modify --reset-password` 恢复，但这要求仍能进入服务器。
+没有 SMTP 时，唯一可靠的恢复途径是能进入本机并运行上面的 `tootctl accounts modify ... --reset-password` 命令。因此初始密码必须保存到密码管理器。
 
 ## 9. 本地文件边界
 
