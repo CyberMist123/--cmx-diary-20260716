@@ -11,7 +11,8 @@
 ## 已确认需求
 
 - 使用原版 Mastodon 作为稳定后端，当前不 fork、不魔改核心代码。
-- 部署在家中闲置 Windows 电脑，本地项目目录：`D:\AI\个人实例（长毛象+朋友圈 beta）`。
+- 部署在家中闲置 Windows 电脑，本地项目目录：`D:\AI\PI-Personal-Instance-OS`。
+- GitHub 仓库：`CyberMist123/PI-Personal-Instance-OS`。
 - 先完成 GitHub 部署包，再迁移到本地；当前不让 Codex 介入。
 - 通过 Cloudflare Named Tunnel 提供 HTTPS 访问，不开放家庭路由器入站端口。
 - 主要使用场景是本人手机端访问；优先保证登录、时间线、发图和通知顺畅。
