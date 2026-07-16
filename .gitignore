@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
+.pi-os-initialized
 *.pem
 *.key
 *.crt
@@ -14,6 +16,7 @@ cloudflared/*.json
 cloudflared/cert.pem
 
 # Mastodon runtime data
+data/
 postgres/
 postgres-data/
 redis/
@@ -24,6 +27,8 @@ uploads/
 backups/
 logs/
 *.log
+*.dump
+*.tar.gz
 
 # Docker / local overrides
 docker-compose.override.yml
