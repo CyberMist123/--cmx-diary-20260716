@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$Domain,
+  [Alias("Domain")]
+  [string]$AccessDomain,
   [string]$AdminUsername = "owner",
   [string]$AdminEmail,
   [string]$TunnelToken
@@ -8,6 +9,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
+
+$IdentityDomain = "pi.invalid"
 
 function Require-Command {
   param([Parameter(Mandatory)][string]$Name)
@@ -58,6 +61,13 @@ function Set-EnvValue {
   Write-Utf8NoBom -Path $Path -Lines $lines
 }
 
+function Test-DomainName {
+  param([Parameter(Mandatory)][string]$Value)
+  return ($Value -notmatch "://" -and
+          $Value -notmatch "[/\\:]" -and
+          $Value -match "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$")
+}
+
 function New-RandomHex {
   param([int]$Count = 32)
   $bytes = New-Object byte[] $Count
@@ -102,22 +112,32 @@ if (-not (Test-Path -LiteralPath ".env.production")) {
 }
 
 $initialized = Test-Path -LiteralPath ".pi-os-initialized"
-$existingDomain = Get-EnvValue -Path ".env.production" -Key "LOCAL_DOMAIN"
+$existingIdentityDomain = Get-EnvValue -Path ".env.production" -Key "LOCAL_DOMAIN"
+$existingAccessDomain = Get-EnvValue -Path ".env.production" -Key "WEB_DOMAIN"
+$existingAlternateDomains = Get-EnvValue -Path ".env.production" -Key "ALTERNATE_DOMAINS"
 
-if ([string]::IsNullOrWhiteSpace($Domain)) {
-  if ($initialized -and -not [string]::IsNullOrWhiteSpace($existingDomain)) {
-    $Domain = $existingDomain
+if (-not [string]::IsNullOrWhiteSpace($existingIdentityDomain) -and $existingIdentityDomain -ne $IdentityDomain) {
+  throw "This configuration uses LOCAL_DOMAIN=$existingIdentityDomain. PI OS now requires the permanent identity LOCAL_DOMAIN=$IdentityDomain. Preserve the current files and do not run setup as a migration tool."
+}
+
+if ([string]::IsNullOrWhiteSpace($AccessDomain)) {
+  if ($initialized -and -not [string]::IsNullOrWhiteSpace($existingAccessDomain)) {
+    $AccessDomain = $existingAccessDomain
   } else {
-    $Domain = Read-Host "Final Mastodon domain, without https://"
+    $AccessDomain = Read-Host "Current public CMX access domain, without https://"
   }
 }
-$Domain = $Domain.Trim().ToLowerInvariant()
-if ($Domain -match "://" -or $Domain -match "/" -or $Domain -notmatch "^[a-z0-9.-]+\.[a-z]{2,}$") {
-  throw "Invalid domain: $Domain. Enter only a hostname such as pi.example.com."
+
+$AccessDomain = $AccessDomain.Trim().ToLowerInvariant()
+if (-not (Test-DomainName -Value $AccessDomain)) {
+  throw "Invalid access domain: $AccessDomain. Enter only a hostname such as pi.example.com."
+}
+if ($AccessDomain -eq $IdentityDomain) {
+  throw "WEB_DOMAIN cannot be $IdentityDomain. It must be a real public hostname."
 }
 
-if ($initialized -and -not [string]::IsNullOrWhiteSpace($existingDomain) -and $existingDomain -ne $Domain) {
-  throw "PI OS is already initialized as $existingDomain. LOCAL_DOMAIN cannot be changed safely to $Domain."
+if ($initialized -and -not [string]::IsNullOrWhiteSpace($existingAccessDomain) -and $existingAccessDomain -ne $AccessDomain) {
+  throw "PI OS currently uses WEB_DOMAIN=$existingAccessDomain. Do not change it through setup.ps1; use change-access-domain.ps1."
 }
 
 $AdminUsername = $AdminUsername.Trim().ToLowerInvariant()
@@ -153,7 +173,10 @@ Set-EnvValue -Path ".env" -Key "POSTGRES_USER" -Value "mastodon"
 Set-EnvValue -Path ".env" -Key "POSTGRES_PASSWORD" -Value $dbPassword
 Set-EnvValue -Path ".env" -Key "CLOUDFLARE_TUNNEL_TOKEN" -Value $TunnelToken
 
-Set-EnvValue -Path ".env.production" -Key "LOCAL_DOMAIN" -Value $Domain
+Set-EnvValue -Path ".env.production" -Key "LOCAL_DOMAIN" -Value $IdentityDomain
+Set-EnvValue -Path ".env.production" -Key "WEB_DOMAIN" -Value $AccessDomain
+Set-EnvValue -Path ".env.production" -Key "STREAMING_API_BASE_URL" -Value "wss://$AccessDomain"
+Set-EnvValue -Path ".env.production" -Key "ALTERNATE_DOMAINS" -Value $(if ($initialized) { "$existingAlternateDomains" } else { "" })
 Set-EnvValue -Path ".env.production" -Key "DB_HOST" -Value "db"
 Set-EnvValue -Path ".env.production" -Key "DB_PORT" -Value "5432"
 Set-EnvValue -Path ".env.production" -Key "DB_NAME" -Value "mastodon_production"
@@ -280,16 +303,19 @@ if (-not $healthy) {
 
 @(
   "initialized_at=$([DateTime]::UtcNow.ToString('o'))",
-  "domain=$Domain",
+  "identity_domain=$IdentityDomain",
+  "access_domain=$AccessDomain",
   "admin_username=$AdminUsername"
 ) | Set-Content -LiteralPath ".pi-os-initialized" -Encoding UTF8
 
 Write-Host ""
 Write-Host "PI OS base deployment is running." -ForegroundColor Green
+Write-Host "Permanent identity: $IdentityDomain"
+Write-Host "Current web entrance: https://$AccessDomain"
 Write-Host "Local health: http://127.0.0.1:8080/_pi/health"
 if ([string]::IsNullOrWhiteSpace($TunnelToken)) {
   Write-Host "Cloudflare is not enabled yet. Follow docs/CLOUDFLARE.md, add the token to .env, then run .\start.ps1." -ForegroundColor Yellow
 } else {
-  Write-Host "Cloudflare container is enabled. Ensure the Tunnel public hostname points to http://nginx:80." -ForegroundColor Yellow
+  Write-Host "Cloudflare container is enabled. Ensure $AccessDomain points to http://nginx:80 in the same Tunnel." -ForegroundColor Yellow
 }
 Write-Host "Run .\status.ps1 for the single final smoke check."
