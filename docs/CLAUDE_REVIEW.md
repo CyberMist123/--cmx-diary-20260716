@@ -1,53 +1,58 @@
-# Claude 独立审计说明
+# PI OS 独立只读审计
 
-这份审计只用于发现首次部署阻断、数据丢失风险和手机端兼容问题，不用于重构或扩展功能。
+当前项目已经完成两轮源码级审阅，并把确认的 P0/P1 写入代码与文档。继续审计只用于发现明确阻断，不用于制造第三套架构。
 
-## 最简单的使用方法
+## 审计入口
 
-把公开仓库地址和下面这段提示词发给 Claude：
+先读：
+
+1. [`../PROJECT.md`](../PROJECT.md) — 当前权威事实、接口和进度；
+2. [`MUTABLE_WEB_DOMAIN_RFC.md`](./MUTABLE_WEB_DOMAIN_RFC.md) — 固定内部身份与可替换公网门牌；
+3. 与审计问题直接相关的脚本。
+
+仓库：
 
 ```text
 https://github.com/CyberMist123/PI-Personal-Instance-OS
 ```
 
-如果 Claude 当前环境不能直接读取 GitHub，则下载仓库 ZIP 后上传，或在本地 clone 后从仓库目录启动 Claude Code。
-
-## 审计提示词
+## 提示词
 
 ```text
-请对这个仓库做一次只读、保守的部署审计。
+请对这个仓库做一次只读、保守的部署审计，不修改仓库。
 
-目标环境：Windows 10/11 + Docker Desktop WSL2；项目目录 D:\AI\PI-Personal-Instance-OS；Mastodon v4.6.3；PostgreSQL 14；Redis 7；Nginx；Cloudflare dashboard-managed Named Tunnel；主要客户端为 iOS Mastodon App；实例关闭注册并启用 limited federation。
+真实环境与边界：
+- Windows 10/11 + Docker Desktop WSL2
+- 本地目录 D:\AI\PI-Personal-Instance-OS
+- Mastodon v4.6.3 / PostgreSQL 14 / Redis 7 / Nginx / Cloudflare Named Tunnel
+- 单用户、无公开联邦
+- 手机浏览器访问网页，不使用 Mastodon App
+- 当前 Mastodon Web；CMX 独立前端尚未实现
+- LOCAL_DOMAIN 永久固定为 pi.invalid
+- WEB_DOMAIN 是可按受控流程替换的公网门牌
+- CMX 将使用同源 Session/CSRF，不使用长期绑定域名的 OAuth application
 
-严格边界：
-1. 不修改任何文件，不提交代码，不创建分支或 PR。
-2. 不建议新功能、主题、Bot、AI 集成、监控栈、Kubernetes、S3、Elasticsearch 或迁移到 Linux/VPS。
-3. 不重写现有方案。只找会导致首次部署失败、数据损坏、密钥丢失、OAuth/媒体上传/streaming 异常、Windows Docker 持久化问题的缺陷。
-4. 以 Mastodon v4.6.3 官方文档/源码、Docker Compose 行为和 Cloudflare Tunnel 官方文档为准，不凭旧版本记忆推断。
-5. 重点检查：compose.yml、setup.ps1、start.ps1、stop.ps1、status.ps1、backup.ps1、nginx/default.conf、.env.production.example、docs/RESTORE.md。
-6. 特别验证 PowerShell 5.1 语法、Compose profile 与 env interpolation、tootctl 命令、VAPID/加密密钥生成、named volumes、Nginx HTTPS/真实 IP/WebSocket 头、Cloudflare origin 路由、备份和恢复命令。
-7. 最多输出 10 项，按 P0/P1/P2 排序。每项必须包含：文件和行/片段、实际失败方式、最小修改方案、依据。
-8. 纯风格问题和“可以更完善”的建议不要报告。
-9. 如果没有 P0/P1，请明确写：可进入首次真实部署；剩余风险只能通过一次运行 smoke 验证。
+只报告确定的 P0/P1：
+1. 首次 setup 是否会失败、丢密钥、创建不可登录 Owner，或写错 LOCAL_DOMAIN/WEB_DOMAIN。
+2. change-access-domain.ps1 的 Prepare/Switch/Release 是否可能造成数据损坏、无法回滚、缓存半新半旧、Sidekiq 丢任务或旧 origin 暗依赖。
+3. status.ps1 是否能准确验证 instance.domain=pi.invalid 和 streaming URL=当前 WEB_DOMAIN。
+4. PostgreSQL、媒体、备份和恢复是否形成闭环。
+5. PowerShell 5.1、Docker Compose profile/env interpolation、Mastodon v4.6.3 tootctl/rails/Redis 命令是否准确。
+6. 浏览器 Session、CSRF、CSP、Web Push、WebAuthn、Service Worker 和媒体 URL 在换域名时是否存在未登记的阻断。
 
-最后单独回答：
-- 是否存在会让 iOS Mastodon App 无法完成实例发现或 OAuth 的配置？
-- 是否存在会让图片上传后丢失或处理失败的配置？
-- 是否存在一次重启后数据库/媒体丢失的风险？
-- backup.ps1 + RESTORE.md 是否形成可恢复闭环？
+严格限制：
+- 不建议购买长期域名、Tailscale、VPS、S3、Kubernetes、公共联邦或重写架构。
+- 不把计划中的 CMX、AI/MCP 当成已实现代码。
+- 不报告风格、可选增强或没有实际失败链路的推测。
+- 每项必须包含文件/片段、实际失败方式、最小修复和 Mastodon v4.6.3/官方依据。
+- 最多 10 项。
+- 若无新 P0/P1，明确写：可进入首次真实部署，剩余风险只能通过目标电脑 smoke 验证。
 ```
 
-## 如何处理审计结果
+## 处理原则
 
-只接受两类修改：
-
-- P0：会丢数据、泄露密钥、破坏身份或导致明显安全事故。
-- P1：会直接阻断首次部署、iOS 登录、发图或 streaming。
-
-P2 先记录，不在第一次部署前继续加复杂度。
-
-Claude 的输出应贴回当前对话，由现有方案负责人逐条核对；不要让 Claude 自动修改仓库。
-
-## 为什么只做一次
-
-仓库已经有静态审计和一次 smoke 脚本。第二模型的价值是独立发现盲点，而不是制造另一套架构。审计完成后直接进入真实部署；真实容器输出比继续进行第三轮文本审查更有价值。
+- 只接受有明确失败链路的 P0/P1；
+- 不让审核模型自动修改仓库；
+- 相同问题不重复修；
+- 没有新 P0/P1 时停止文本审计，进入真实部署；
+- 任何已接受修改完成后，执行 `skills/project-doc-sync/SKILL.md` 更新 `PROJECT.md`。
