@@ -5,6 +5,7 @@ services:
     image: postgres:14-alpine
     restart: unless-stopped
     shm_size: 256mb
+    stop_grace_period: 1m
     env_file:
       - .env
     environment:
@@ -12,7 +13,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-mastodon}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./backups:/backups
     networks:
       - data
@@ -28,7 +29,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
-      - ./data/redis:/data
+      - redis_data:/data
     networks:
       - data
     healthcheck:
@@ -134,7 +135,7 @@ services:
       retries: 5
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.7.2
     restart: unless-stopped
     profiles:
       - tunnel
@@ -150,3 +151,7 @@ networks:
   app:
   data:
     internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
