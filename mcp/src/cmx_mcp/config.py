@@ -48,17 +48,33 @@ class InstanceSettings:
     max_context_chars: int = 16000
     max_media_bytes: int = 20 * 1024 * 1024
 
+    @property
+    def public_base_url(self) -> str:
+        return f"https://{self.host_header}"
+
     @classmethod
     def load(cls, paths: Paths) -> "InstanceSettings":
-        values = _read_env_file(paths.home.parent / ".env")
+        values: dict[str, str] = {}
+        # Docker Compose uses .env for interpolation and .env.production for
+        # Mastodon itself. Read both so MCP works regardless of which file
+        # carries WEB_DOMAIN on the target machine.
+        for env_path in (paths.home.parent / ".env", paths.home.parent / ".env.production"):
+            values.update(_read_env_file(env_path))
+
         base_url = os.getenv("CMX_MASTODON_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
         parsed = urlparse(base_url)
         if parsed.scheme != "http" or parsed.hostname not in _LOOPBACK:
             raise RuntimeError("CMX_MASTODON_BASE_URL must be a loopback http URL")
 
-        host = os.getenv("CMX_MASTODON_HOST", "").strip() or values.get("WEB_DOMAIN", "").strip()
+        host = (
+            os.getenv("CMX_MASTODON_HOST", "").strip()
+            or os.getenv("WEB_DOMAIN", "").strip()
+            or values.get("WEB_DOMAIN", "").strip()
+        )
         if not host:
-            raise RuntimeError("CMX_MASTODON_HOST or parent .env WEB_DOMAIN is required")
+            raise RuntimeError(
+                "CMX_MASTODON_HOST, WEB_DOMAIN, or repository .env.production WEB_DOMAIN is required"
+            )
         if "://" in host or "/" in host or not _HOST_RE.fullmatch(host):
             raise RuntimeError("CMX_MASTODON_HOST must be a hostname, optionally with a port")
 
