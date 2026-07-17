@@ -4,5 +4,6 @@ spool/
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal
+*.egg-info/
 __pycache__/
 .pytest_cache/
