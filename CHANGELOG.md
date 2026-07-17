@@ -2,9 +2,23 @@
 
 本文件记录可部署版本的用户可见变化。运行状态与边界仍以 `PROJECT.md` 为准。
 
+## v0.2.0-rc.2 — 2026-07-18
+
+状态：目标 Windows 已完成安装和 SQLite 初始化；尚未添加真实 AI 居民 Token，也未完成实际 MCP/REST 读写 smoke。
+
+在 rc.1 基础上：
+
+- 新增 `cmx-smoke` 和 `mcp/smoke.ps1`；
+- smoke 不依赖 Telegram、Fable 或现有聊天桥，直接由官方 MCP Python client 启动本机 STDIO server；
+- 自动验证 MCP 初始化、profile 对应工具列表、`cmx_identity` 和一条受限时间线读取；
+- Reader 出现写工具或 Resident 缺工具时直接失败；
+- `*.egg-info/` 加入 Git 忽略，editable install 不再污染工作区；
+- GitHub Actions 改为持续检查 `main`；
+- 远程 Streamable HTTP MCP 明确延后到本地独立 smoke 通过之后。
+
 ## v0.2.0-rc.1 — 2026-07-17
 
-状态：代码与 CI 已完成，目标 Windows、真实 Mastodon Token 和 MCP 客户端尚未 smoke。
+状态：代码与 CI 已完成；随后已在目标 Windows 成功安装，真实 Mastodon Token 和 MCP 客户端仍未 smoke。
 
 新增小实例 CMX MCP：
 
@@ -22,8 +36,7 @@
 
 仍未验证或未实现：
 
-- 目标 Windows 安装与 DPAPI smoke；
-- 真实 Mastodon v4.6.3 Token scope 和 Host override smoke；
+- 真实 Mastodon v4.6.3 Token scope、DPAPI 和 Host override smoke；
 - Claude Code/Fable MCP 客户端接入；
 - `self`、`circle` 和稳定的原生引用嘟文；
 - 独立 CMX 设置页后端。
