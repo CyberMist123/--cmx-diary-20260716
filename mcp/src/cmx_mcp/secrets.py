@@ -36,8 +36,8 @@ _crypt32.CryptUnprotectData.argtypes = [
 ]
 _crypt32.CryptUnprotectData.restype = wintypes.BOOL
 
-_kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
-_kernel32.LocalFree.restype = wintypes.HLOCAL
+_kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+_kernel32.LocalFree.restype = ctypes.c_void_p
 
 
 def _blob(data: bytes) -> tuple[DATA_BLOB, ctypes.Array]:
@@ -68,7 +68,7 @@ def protect_for_current_user(secret: str) -> bytes:
     try:
         return ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
-        _kernel32.LocalFree(ctypes.cast(out_blob.pbData, wintypes.HLOCAL))
+        _kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
 
 
 def unprotect_for_current_user(payload: bytes) -> str:
@@ -89,7 +89,7 @@ def unprotect_for_current_user(payload: bytes) -> str:
     try:
         return ctypes.string_at(out_blob.pbData, out_blob.cbData).decode("utf-8")
     finally:
-        _kernel32.LocalFree(ctypes.cast(out_blob.pbData, wintypes.HLOCAL))
+        _kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
 
 
 def write_secret(path: Path, secret: str) -> None:
