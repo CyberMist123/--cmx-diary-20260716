@@ -61,11 +61,6 @@ class InstanceSettings:
         for env_path in (paths.home.parent / ".env", paths.home.parent / ".env.production"):
             values.update(_read_env_file(env_path))
 
-        base_url = os.getenv("CMX_MASTODON_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
-        parsed = urlparse(base_url)
-        if parsed.scheme != "http" or parsed.hostname not in _LOOPBACK:
-            raise RuntimeError("CMX_MASTODON_BASE_URL must be a loopback http URL")
-
         host = (
             os.getenv("CMX_MASTODON_HOST", "").strip()
             or os.getenv("WEB_DOMAIN", "").strip()
@@ -77,6 +72,22 @@ class InstanceSettings:
             )
         if "://" in host or "/" in host or not _HOST_RE.fullmatch(host):
             raise RuntimeError("CMX_MASTODON_HOST must be a hostname, optionally with a port")
+
+        # Use the already-working public HTTPS endpoint by default. A local
+        # loopback endpoint remains available as an explicit opt-in for
+        # deployments whose reverse proxy has been verified for API traffic.
+        base_url = os.getenv("CMX_MASTODON_BASE_URL", f"https://{host}").rstrip("/")
+        parsed = urlparse(base_url)
+        if parsed.path not in ("", "/") or parsed.params or parsed.query or parsed.fragment:
+            raise RuntimeError("CMX_MASTODON_BASE_URL must not contain a path, query, or fragment")
+        if parsed.scheme == "http":
+            if parsed.hostname not in _LOOPBACK:
+                raise RuntimeError("An http CMX_MASTODON_BASE_URL must be loopback only")
+        elif parsed.scheme == "https":
+            if parsed.netloc.lower() != host.lower():
+                raise RuntimeError("An https CMX_MASTODON_BASE_URL must match CMX_MASTODON_HOST")
+        else:
+            raise RuntimeError("CMX_MASTODON_BASE_URL must use https, or loopback http")
 
         return cls(
             base_url=base_url,
