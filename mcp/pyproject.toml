@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmx-mcp"
-version = "0.2.0rc1"
+version = "0.2.0rc2"
 description = "Token-efficient local STDIO MCP for a small private CMX/Mastodon instance"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 cmx-mcp = "cmx_mcp.app:main"
 cmx-admin = "cmx_mcp.cli:main"
+cmx-smoke = "cmx_mcp.smoke:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
