@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmx-mcp"
-version = "0.2.0rc4"
-description = "Token-efficient local STDIO MCP for a small private CMX/Mastodon instance"
+version = "0.3.0rc1"
+description = "Token-efficient local and authenticated remote MCP for a private CMX instance"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -19,6 +19,7 @@ cmx-mcp = "cmx_mcp.app:main"
 cmx-admin = "cmx_mcp.cli:main"
 cmx-smoke = "cmx_mcp.smoke:main"
 cmx-authorize = "cmx_mcp.authorize:main"
+cmx-mcp-http = "cmx_mcp.remote:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -57,12 +57,31 @@ def main() -> None:
     media_root = Path(args.media_root).expanduser().resolve()
     media_root.mkdir(parents=True, exist_ok=True)
 
+    scopes = DEFAULT_SCOPES[:3] if args.profile == "reader" else DEFAULT_SCOPES
     token, approved_scopes = _authorize_in_browser(
         public_base_url=settings.public_base_url,
         bot_id=bot_id,
         display_name=args.display_name.strip(),
         timeout_seconds=max(30, min(args.timeout, 900)),
+        scopes=scopes,
     )
+
+    client = MastodonClient(
+        base_url=settings.base_url,
+        host_header=settings.host_header,
+        token=token,
+        timeout=settings.timeout_seconds,
+    )
+    try:
+        account = compact_account(client.verify_credentials())
+    finally:
+        client.close()
+    authorized_username = str(account.get("acct") or "").split("@", 1)[0].lower()
+    if authorized_username != bot_id:
+        raise RuntimeError(
+            f"Authorized account '@{authorized_username}' does not match BotId '{bot_id}'. "
+            "No credential was saved; repeat and sign in as the AI resident account."
+        )
 
     token_ref = f"{bot_id}.token.dpapi"
     write_secret(paths.secrets / token_ref, token)
@@ -78,17 +97,6 @@ def main() -> None:
         default_audience=args.default_audience,
         allow_public=bool(args.allow_public),
     )
-
-    client = MastodonClient(
-        base_url=settings.base_url,
-        host_header=settings.host_header,
-        token=token,
-        timeout=settings.timeout_seconds,
-    )
-    try:
-        account = compact_account(client.verify_credentials())
-    finally:
-        client.close()
 
     executable = paths.home / ".venv" / "Scripts" / "cmx-mcp.exe"
     config = {
@@ -117,7 +125,12 @@ def main() -> None:
 
 
 def _authorize_in_browser(
-    *, public_base_url: str, bot_id: str, display_name: str, timeout_seconds: int
+    *,
+    public_base_url: str,
+    bot_id: str,
+    display_name: str,
+    timeout_seconds: int,
+    scopes: tuple[str, ...] = DEFAULT_SCOPES,
 ) -> tuple[str, list[str]]:
     result: dict[str, str] = {}
     ready = threading.Event()
@@ -127,7 +140,7 @@ def _authorize_in_browser(
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _handler_factory(result, ready, state))
     callback_url = f"http://127.0.0.1:{server.server_port}/callback"
-    scopes = " ".join(DEFAULT_SCOPES)
+    scope_text = " ".join(scopes)
 
     with httpx.Client(timeout=30.0, follow_redirects=False) as http:
         app_response = http.post(
@@ -135,7 +148,7 @@ def _authorize_in_browser(
             data={
                 "client_name": f"CMX MCP - {display_name or bot_id}",
                 "redirect_uris": callback_url,
-                "scopes": scopes,
+                "scopes": scope_text,
                 "website": public_base_url,
             },
         )
@@ -149,7 +162,7 @@ def _authorize_in_browser(
                 "response_type": "code",
                 "client_id": client_id,
                 "redirect_uri": callback_url,
-                "scope": scopes,
+                "scope": scope_text,
                 "state": state,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
@@ -195,7 +208,7 @@ def _authorize_in_browser(
         token = str(token_data.get("access_token", "")).strip()
         if not token:
             raise RuntimeError("Mastodon did not return an access token")
-        approved = token_data.get("scope", scopes)
+        approved = token_data.get("scope", scope_text)
         approved_scopes = approved.split() if isinstance(approved, str) else list(approved)
         return token, approved_scopes
 

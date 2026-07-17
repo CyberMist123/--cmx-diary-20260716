@@ -267,4 +267,21 @@ Prepare 只证明新 Host/TLS/基础 GET 可用。Switch 才正式修改 `WEB_DO
 
 ## 14. 当前停止线
 
-基础网页 MVP 已完成。独立 CMX、AI/MCP、内容权限中文语义和公开博客出口属于后续独立阶段。
+基础网页 MVP 已完成。AI/MCP 已作为独立增量部署，不改变 Mastodon 数据和恢复边界。
+
+MCP 安装与启用：
+
+```powershell
+Set-Location "D:\AI\PI-Personal-Instance-OS"
+.\mcp\install.ps1
+.\mcp\http-enable.ps1
+.\mcp\http-status.ps1
+```
+
+启用标记是 `mcp\runtime\http-enabled`。存在时，根目录 `start.ps1` / `stop.ps1` / `status.ps1` 会管理 Windows loopback `127.0.0.1:8766` 服务。Nginx 把 `/mcp/<bot_id>` 和 OAuth 路由转发到该服务。停用公网 MCP：
+
+```powershell
+.\mcp\http-disable.ps1
+```
+
+独立 CMX 前端、内容权限中文语义和公开博客出口仍属于后续阶段。

@@ -2,6 +2,20 @@
 
 本文件记录可部署版本的用户可见变化。运行状态与边界仍以 `PROJECT.md` 为准。
 
+## v0.3.0-rc.1 — 2026-07-18
+
+状态：目标 Windows 上的真实 `gpt` 本地读链路、Claude Code 和公网 OAuth 只读 MCP 已验证；新账号向导与本地写工具仍待人工验收。
+
+- 修复已保存凭据实际是隐藏输入 Ctrl+V 控制字符导致 Mastodon 400 的故障，恢复现有有效 DPAPI Token，并拒绝过短、控制字符或首尾空白凭据；
+- 浏览器授权在写入 DPAPI/SQLite 前校验账号名必须匹配 `BotId`，Reader 只申请读 scope；
+- 新增 `setup-ai.ps1`，支持创建并批准 AI 居民或选择已有账号，随后浏览器授权、DPAPI 保存、独立 smoke 和远程映射刷新；
+- 保留本地 STDIO Resident 工具，新增只读 `cmx-mcp-http` Streamable HTTP 服务；
+- 新增 OAuth 2.1 动态客户端注册、PKCE、一次性 code、access/refresh token、刷新轮换、撤销和每居民 resource/subject 绑定；
+- 远程服务只绑定 `127.0.0.1:8766`，Nginx/Cloudflare 只转发明确的 MCP/OAuth 路由；
+- 新增 `http-enable.ps1`、`http-disable.ps1`、`http-start.ps1`、`http-stop.ps1`、`http-status.ps1`，并接入 PI OS 总启动/停止/状态脚本；
+- 公网 `https://pi.ler428.xyz/mcp/gpt` 仅暴露四个 Reader 工具，完整 DCR/PKCE/OAuth/MCP 调用已通过；
+- Claude Code 用户级 `cmx-gpt` STDIO 连接已通过；ChatGPT Plus 当前没有 Apps → Create 入口，网页端连接待账号能力开放。
+
 ## v0.2.0-rc.2 — 2026-07-18
 
 状态：目标 Windows 已完成安装和 SQLite 初始化；尚未添加真实 AI 居民 Token，也未完成实际 MCP/REST 读写 smoke。

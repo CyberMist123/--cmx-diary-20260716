@@ -93,6 +93,14 @@ def unprotect_for_current_user(payload: bytes) -> str:
 
 
 def write_secret(path: Path, secret: str) -> None:
+    if (
+        len(secret) < 20
+        or secret != secret.strip()
+        or any(ord(character) < 33 or ord(character) == 127 for character in secret)
+    ):
+        raise ValueError(
+            "credential looks invalid; control characters and pasted Ctrl+V are not accepted"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_bytes(protect_for_current_user(secret))

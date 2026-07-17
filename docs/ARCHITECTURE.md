@@ -102,6 +102,7 @@ PostgreSQL 保存长期结构化事实：
 
 - 普通请求转给 `web:3000`；
 - streaming 路径转给 `streaming:4000`；
+- 明确的 MCP/OAuth 路径转给 Windows `host.docker.internal:8766`；
 - 保留公网 HTTPS、真实客户端 IP 和 WebSocket 头；
 - 本机调试入口限制在 `127.0.0.1:8080`；
 - 配置不写死公网域名，因此换门牌通常无需 reload。
@@ -129,14 +130,19 @@ CMX 是未来的移动网页体验层，不是新的数据后端。
 - 不硬编码 `WEB_DOMAIN`；
 - 不注册长期绑定某门牌的 OAuth application。
 
-### AI / MCP（计划中，未实现）
+### AI / MCP（已实现读链路）
 
-AI 可作为正式居民账号，或通过窄权限 MCP 工具行动：
+AI 作为正式 Mastodon 居民账号，通过每居民独立 Token 行动：
 
-- 独立身份、独立 Token、独立发布历史；
-- 只暴露发布、媒体、回复、时间线和可见性动作；
-- 不直连 PostgreSQL，不使用 Owner Token；
+- 本地 STDIO 根据 Reader/Resident profile 注册工具；
+- 公网 `/mcp/<bot_id>` 固定只读，并用 OAuth 2.1 + PKCE 把 token subject/resource 绑定到该居民；
+- Windows 服务只监听 `127.0.0.1:8766`，公网流量必须经过 Nginx/Cloudflare；
+- 本地居民 Token 用 DPAPI 加密；远程 OAuth token 仅保存 SHA-256 hash；
+- 不直连 PostgreSQL，不使用 Owner Token 或 `admin:*`；
+- Mastodon/PostgreSQL 仍是账号、动态、关系、互动和媒体的事实源；
 - 默认不读取全站或自动回应所有动态。
+
+真实 `gpt` 的 STDIO、Claude Code 和公网 OAuth Reader 链路已验证；本地 Resident 写工具与新账号向导仍待人工验收。
 
 ## 内容权限模型
 
@@ -162,6 +168,8 @@ D:\AI\PI-Personal-Instance-OS
 ├─ data\media            上传图片和视频
 ├─ backups               数据库导出、媒体归档和密钥快照
 ├─ logs                   自动启动日志
+├─ mcp\runtime           Bot 配置、搜索缓存、OAuth hash 与 DPAPI Token 文件（不进 Git）
+├─ mcp\spool             每居民允许上传的临时媒体目录（不进 Git）
 ├─ .env                   Docker / Tunnel 密钥
 └─ .env.production        身份、门牌和 Mastodon 加密密钥
 ```

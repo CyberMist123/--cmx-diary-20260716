@@ -48,6 +48,11 @@ if (-not (Test-Path -LiteralPath ".env") -or -not (Test-Path -LiteralPath ".env.
   throw "PI OS is not configured. Run .\setup.ps1 first."
 }
 
+$mcpEnabled = Join-Path $PSScriptRoot "mcp\runtime\http-enabled"
+if (Test-Path -LiteralPath $mcpEnabled) {
+  & (Join-Path $PSScriptRoot "mcp\http-start.ps1")
+}
+
 $dockerCommand = Get-Command docker.exe -ErrorAction SilentlyContinue
 if (-not $dockerCommand) {
   throw "Docker CLI was not found."
@@ -75,3 +80,6 @@ if ($startResult.ExitCode -ne 0) {
 
 Write-Host "PI OS started." -ForegroundColor Green
 Write-Host "Local health: http://127.0.0.1:8080/_pi/health"
+if (Test-Path -LiteralPath $mcpEnabled) {
+  Write-Host "Remote MCP health: http://127.0.0.1:8080/_pi/mcp-health"
+}

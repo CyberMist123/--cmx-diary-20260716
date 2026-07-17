@@ -124,6 +124,7 @@ New-Item -ItemType Directory -Force -Path $Runtime | Out-Null
 foreach ($required in @(
     $Admin,
     (Join-Path $Venv "Scripts\cmx-mcp.exe"),
+    (Join-Path $Venv "Scripts\cmx-mcp-http.exe"),
     (Join-Path $Runtime "cmx.sqlite3")
 )) {
     if (-not (Test-Path -LiteralPath $required)) {

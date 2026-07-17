@@ -74,6 +74,18 @@ try {
   $failures.Add("local nginx health failed")
 }
 
+$mcpEnabled = Test-Path -LiteralPath ".\mcp\runtime\http-enabled"
+if ($mcpEnabled) {
+  try {
+    $mcpHealth = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8080/_pi/mcp-health" -TimeoutSec 5
+    if ($mcpHealth.StatusCode -ne 200) { throw "HTTP $($mcpHealth.StatusCode)" }
+    Write-Host "Remote MCP (read only): OK" -ForegroundColor Green
+  } catch {
+    Write-Host "Remote MCP: FAIL - $($_.Exception.Message)" -ForegroundColor Red
+    $failures.Add("remote MCP health failed")
+  }
+}
+
 & docker compose exec -T web sh -lc "curl -fsS http://localhost:3000/health | grep -q OK"
 if ($LASTEXITCODE -eq 0) {
   Write-Host "Mastodon web: OK" -ForegroundColor Green
@@ -137,6 +149,17 @@ if (-not [string]::IsNullOrWhiteSpace($token) -and $token -ne "MISSING" -and -no
   } catch {
     Write-Host "Public streaming route: FAIL - $($_.Exception.Message)" -ForegroundColor Red
     $failures.Add("public streaming route failed")
+  }
+
+  if ($mcpEnabled) {
+    try {
+      $mcpPublic = Invoke-WebRequest -UseBasicParsing -Uri "https://$webDomain/_pi/mcp-health" -TimeoutSec 15
+      if ($mcpPublic.StatusCode -ne 200) { throw "HTTP $($mcpPublic.StatusCode)" }
+      Write-Host "Public remote MCP route: OK" -ForegroundColor Green
+    } catch {
+      Write-Host "Public remote MCP route: FAIL - $($_.Exception.Message)" -ForegroundColor Red
+      $failures.Add("public remote MCP route failed")
+    }
   }
 }
 

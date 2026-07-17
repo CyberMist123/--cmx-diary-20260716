@@ -4,7 +4,7 @@ import argparse
 import hashlib
 import json
 import time
-from typing import Literal
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -34,6 +34,9 @@ class Runtime:
             timeout=self.settings.timeout_seconds,
         )
 
+    def close(self) -> None:
+        self.client.close()
+
     def audit(
         self,
         tool: str,
@@ -53,8 +56,13 @@ class Runtime:
         )
 
 
-def build_server(runtime: Runtime) -> FastMCP:
-    mcp = FastMCP(f"CMX resident: {runtime.bot.bot_id}")
+def build_server(
+    runtime: Runtime,
+    *,
+    read_only: bool = False,
+    **fastmcp_options: Any,
+) -> FastMCP:
+    mcp = FastMCP(f"CMX resident: {runtime.bot.bot_id}", **fastmcp_options)
 
     @mcp.tool()
     def cmx_identity() -> dict:
@@ -137,7 +145,7 @@ def build_server(runtime: Runtime) -> FastMCP:
             "hint": "Read timelines to expand the local index.",
         }
 
-    if runtime.bot.profile in {"resident", "personal"}:
+    if not read_only and runtime.bot.profile in {"resident", "personal"}:
 
         @mcp.tool()
         def cmx_publish(
@@ -351,7 +359,7 @@ def main() -> None:
         server = build_server(runtime)
         server.run(transport="stdio")
     finally:
-        runtime.client.close()
+        runtime.close()
 
 
 if __name__ == "__main__":
