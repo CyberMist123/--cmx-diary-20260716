@@ -1,6 +1,6 @@
 # CMX MCP — small private instance edition
 
-状态：实施分支代码，必须在目标 Windows 电脑安装和 smoke 后才能标记为已验证。
+状态：本地 STDIO 实现已进入 `v0.2.0-rc.2`；必须在目标 Windows 电脑添加真实居民 Token 并完成独立 smoke 后，才能标记为稳定版。
 
 ## 目标
 
@@ -67,6 +67,26 @@ powershell.exe `
   -File "D:\AI\PI-Personal-Instance-OS\mcp\status.ps1" `
   -BotId "fable"
 ```
+
+## 独立 MCP smoke
+
+本测试不依赖 Telegram、Fable 启动器或任何现有聊天桥。它会由官方 MCP Python client 启动本机 `cmx-mcp.exe`，完成协议初始化、`tools/list`、`cmx_identity` 和一条受限时间线读取。
+
+```powershell
+powershell.exe `
+  -NoProfile `
+  -ExecutionPolicy Bypass `
+  -File "D:\AI\PI-Personal-Instance-OS\mcp\smoke.ps1" `
+  -BotId "fable"
+```
+
+成功结尾：
+
+```text
+Independent CMX MCP smoke passed.
+```
+
+该 smoke 证明 MCP 本体、STDIO、动态工具列表、DPAPI Token、SQLite 配置和 Mastodon REST 读链路均可独立工作。写入动作在此之后逐项人工验收，避免测试脚本自动发布内容。
 
 ## MCP 配置
 
