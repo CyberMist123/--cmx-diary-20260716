@@ -4,7 +4,7 @@
 >
 > 所有 AI、Agent 和维护者开始工作前先读本文件。完成已确认的功能或架构修改后，必须原地更新本文件及受影响的详细文档；不得另建重复的状态、交接或架构摘要。
 >
-> 最后更新：2026-07-16
+> 最后更新：2026-07-17
 
 ## 1. 项目是什么
 
@@ -109,6 +109,16 @@ data/media  图片和视频文件
 
 所有服务由 `compose.yml` 管理。Cloudflare Public Hostname 必须指向 `http://nginx:80`，主网页域名不能套 Cloudflare Access。
 
+### 已验证运行事实
+
+2026-07-17，用户明确确认首次本地实例已经在目标 Windows 电脑运行，手机和 PC 均已通过当前公网门牌打通网页访问链路。这一确认能够证明以下链路实际可用：
+
+```text
+手机 / PC → 当前 WEB_DOMAIN → Cloudflare Tunnel → Nginx → Mastodon Web
+```
+
+该确认**不自动证明**发文、发图、缩略图、streaming、备份、恢复或开机自动启动已经通过；这些仍按各自验收项记录。
+
 ## 5. 精确接口与配置
 
 ### 公网 HTTP
@@ -181,6 +191,8 @@ Cloudflare 添加当前 WEB_DOMAIN → http://nginx:80
 → 安装开机自启
 ```
 
+截至 2026-07-17，首次初始化及手机/PC 网页访问链路已经完成；完整人工 smoke、备份和自动启动按进度表继续验收。
+
 ### 更换公网门牌
 
 ```text
@@ -196,17 +208,19 @@ Cloudflare 先添加新域名
 
 ## 8. 功能与进度表
 
-状态含义：`已实现/未实测` 表示 GitHub 代码已写入，但目标 Windows 电脑尚未运行验证。
+状态含义：`已实现/未验证` 表示代码已经写入但对应真实行为尚未完成验收；`已验证` 必须有命令输出、日志或明确人工确认。
 
 | 项目 | 状态 | 当前事实 / 验收证据 |
 |---|---|---|
-| Docker/Mastodon 基础栈 | 已实现/未实测 | Compose、Nginx、Web、Streaming、Sidekiq、PostgreSQL、Redis、cloudflared 已配置 |
-| 固定 `LOCAL_DOMAIN=pi.invalid` | 已实现/未实测 | env 模板与 `setup.ps1` 固定写入并校验 |
-| 可替换 `WEB_DOMAIN` | 已实现/未实测 | setup、status 与切换脚本已按双域名模型设计 |
-| Owner 创建与关闭注册 | 已实现/未实测 | `--confirmed --approve --role Owner`；注册关闭 |
-| 备份与恢复 | 已实现/未实测 | PostgreSQL/媒体校验备份；恢复时清 Redis |
-| Windows 登录后自动启动 | 已实现/未实测 | 计划任务脚本已存在 |
-| 手机 Mastodon 网页 MVP | 待本地部署验证 | 登录、发文、发图、时间线、streaming、重启恢复 |
+| Docker/Mastodon 基础栈 | 已实现/未验证 | Compose、Nginx、Web、Streaming、Sidekiq、PostgreSQL、Redis、cloudflared 已配置；完整服务 smoke 尚未记录 |
+| 首次本地初始化 | 已验证 | 2026-07-17 用户确认实例已在目标 Windows 电脑运行 |
+| 手机与 PC 公网网页链路 | 已验证 | 2026-07-17 用户明确确认手机、PC 均已打通当前实例 |
+| 固定 `LOCAL_DOMAIN=pi.invalid` | 已实现/未验证 | env 模板与 `setup.ps1` 固定写入；仍需记录 `/api/v2/instance` 验证结果 |
+| 可替换 `WEB_DOMAIN` | 已实现/未验证 | setup、status 与切换脚本已按双域名模型设计；尚未执行真实换域名演练 |
+| Owner 创建与关闭注册 | 已实现/未验证 | `--confirmed --approve --role Owner`；已生成并保存 Owner 密码，登录和注册关闭状态仍需人工确认 |
+| 备份与恢复 | 已实现/未验证 | PostgreSQL/媒体校验备份；恢复时清 Redis；尚未记录首次真实备份结果 |
+| Windows 登录后自动启动 | 已实现/未验证 | 计划任务脚本已存在；尚未记录重启验证 |
+| 手机 Mastodon 网页完整 MVP | 待完整验收 | 网页访问链路已验证；登录、发文、发图、时间线、streaming 和重启恢复仍需逐项确认 |
 | 独立 CMX 前端 | 计划中 | 本仓库尚无 CMX 服务；必须同源 Session、相对 API |
 | 内容可见性中文语义 | 计划中 | 仅自己 / 指定圈子 / 居民可见 / 明确公开 |
 | 匿名公开博客出口 | 计划中 | 当前隐私配置没有匿名公开页面；未来需独立只读 CMX/blog route 与显式权限 |
@@ -216,12 +230,11 @@ Cloudflare 先添加新域名
 
 ## 9. 当前下一步
 
-1. 将 Cloudflare Public Hostname `pi.ler428.xyz` 指向 `http://nginx:80`。
-2. clone 到 `D:\AI\PI-Personal-Instance-OS`。
-3. 运行 `setup.ps1 -AccessDomain pi.ler428.xyz`。
-4. 完成一次 `status.ps1` 和手机浏览器人工 smoke。
-5. 运行一次备份并安装自动启动。
-6. 验收后停止扩范围；CMX 与 AI/MCP 作为后续独立增量。
+1. 运行一次 `status.ps1` 并保留结果，确认 Web、streaming、Sidekiq、公网入口及 Git 安全检查。
+2. 确认 `LOCAL_DOMAIN=pi.invalid`，并检查 `/api/v2/instance` 的 `domain` 与 streaming URL。
+3. 在手机浏览器完成登录、发文字、上传图片、缩略图、时间线和实时更新的人工 smoke。
+4. 运行一次 `backup.ps1`，再安装并验证 `PI-OS-Autostart`。
+5. 完成重启恢复后关闭基础部署 Issue，CMX 与 AI/MCP 作为后续独立增量。
 
 ## 10. Agent 更新契约
 
@@ -239,5 +252,5 @@ Cloudflare 先添加新域名
 - 再更新受影响的 `docs/MVP_SCOPE.md`、`docs/ARCHITECTURE.md`、部署/恢复文档；
 - 更新当前 Issue 的剩余步骤；
 - 删除或替换陈旧描述，不并存两套架构；
-- 明确区分“计划中”“已实现/未实测”“已运行验证”；
+- 明确区分“计划中”“已实现/未验证”“已验证”；
 - 没有真实输出时不得声称部署成功。
