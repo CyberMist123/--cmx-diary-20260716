@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -43,10 +44,14 @@ PROFILE_CAPABILITIES: dict[Profile, frozenset[str]] = {
     Profile.PERSONAL: frozenset(PERSONAL_ACTIONS),
 }
 
+_HOST_PATTERN = re.compile(r"^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$")
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
     base_url: str
+    host_header: str
     access_token: str
     profile: Profile
     media_root: Path | None
@@ -70,12 +75,22 @@ class Settings:
 
         allow_remote = os.getenv("CMX_ALLOW_REMOTE_BASE_URL", "false").lower() in {"1", "true", "yes"}
         parsed = urlparse(base_url)
-        if parsed.scheme not in {"http", "https"}:
-            raise RuntimeError("CMX_MASTODON_BASE_URL must use http or https")
-        if not allow_remote and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise RuntimeError("CMX_MASTODON_BASE_URL must be an absolute http/https URL")
+        if not allow_remote and parsed.hostname not in _LOOPBACK_HOSTS:
             raise RuntimeError(
                 "CMX_MASTODON_BASE_URL must be loopback unless CMX_ALLOW_REMOTE_BASE_URL=true"
             )
+
+        host_header = os.getenv("CMX_MASTODON_HOST", "").strip()
+        if not host_header:
+            if parsed.hostname in _LOOPBACK_HOSTS:
+                raise RuntimeError(
+                    "CMX_MASTODON_HOST is required for loopback access so Rails sees the current WEB_DOMAIN"
+                )
+            host_header = parsed.netloc
+        if "://" in host_header or "/" in host_header or not _HOST_PATTERN.fullmatch(host_header):
+            raise RuntimeError("CMX_MASTODON_HOST must be a hostname, optionally with a port")
 
         media_root_raw = os.getenv("CMX_MEDIA_ROOT", "").strip()
         media_root = Path(media_root_raw).expanduser() if media_root_raw else None
@@ -97,6 +112,7 @@ class Settings:
 
         return cls(
             base_url=base_url,
+            host_header=host_header,
             access_token=access_token,
             profile=profile,
             media_root=media_root,
