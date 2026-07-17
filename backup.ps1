@@ -62,15 +62,15 @@ try {
   Copy-Item -LiteralPath ".env.production" -Destination (Join-Path $snapshotPath ".env.production")
   Copy-Item -LiteralPath "compose.yml" -Destination (Join-Path $snapshotPath "compose.yml")
 
-  # Docker Compose writes transient container lifecycle messages to stderr even when
-  # the command succeeds. Suppress those messages so Windows PowerShell 5.1 does not
-  # convert them into a terminating NativeCommandError under ErrorActionPreference=Stop.
-  $versionOutput = @(& docker compose run --rm --no-deps web bin/tootctl --version 2>$null)
-  $versionExitCode = $LASTEXITCODE
-  if ($versionExitCode -eq 0 -and $versionOutput.Count -gt 0) {
-    $versionOutput | Set-Content -LiteralPath (Join-Path $snapshotPath "mastodon-version.txt") -Encoding UTF8
+  # Version metadata is informational and must never create a temporary container or
+  # affect backup success. Read the pinned Mastodon image tag from the saved Compose file.
+  $composeText = Get-Content -LiteralPath "compose.yml" -Raw
+  $versionMatch = [regex]::Match($composeText, 'ghcr\.io/mastodon/mastodon:(?<version>[A-Za-z0-9._-]+)')
+  if ($versionMatch.Success) {
+    $versionMatch.Groups["version"].Value |
+      Set-Content -LiteralPath (Join-Path $snapshotPath "mastodon-version.txt") -Encoding UTF8
   } else {
-    Write-Warning "Could not record the Mastodon version; continuing because the core backup is valid."
+    Write-Warning "Could not read the Mastodon image tag from compose.yml; continuing because the core backup is valid."
   }
 
   @(
