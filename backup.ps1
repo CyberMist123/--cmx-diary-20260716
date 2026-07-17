@@ -62,9 +62,15 @@ try {
   Copy-Item -LiteralPath ".env.production" -Destination (Join-Path $snapshotPath ".env.production")
   Copy-Item -LiteralPath "compose.yml" -Destination (Join-Path $snapshotPath "compose.yml")
 
-  $versionOutput = & docker compose run --rm --no-deps web bin/tootctl --version 2>&1
-  if ($LASTEXITCODE -eq 0) {
+  # Docker Compose writes transient container lifecycle messages to stderr even when
+  # the command succeeds. Suppress those messages so Windows PowerShell 5.1 does not
+  # convert them into a terminating NativeCommandError under ErrorActionPreference=Stop.
+  $versionOutput = @(& docker compose run --rm --no-deps web bin/tootctl --version 2>$null)
+  $versionExitCode = $LASTEXITCODE
+  if ($versionExitCode -eq 0 -and $versionOutput.Count -gt 0) {
     $versionOutput | Set-Content -LiteralPath (Join-Path $snapshotPath "mastodon-version.txt") -Encoding UTF8
+  } else {
+    Write-Warning "Could not record the Mastodon version; continuing because the core backup is valid."
   }
 
   @(
@@ -104,6 +110,10 @@ try {
     if ($LASTEXITCODE -ne 0) {
       Write-Warning "Backup finished, but the previous application state could not be restored automatically. Run .\start.ps1."
     }
+  }
+
+  if (-not $backupSucceeded -and (Test-Path -LiteralPath $snapshotPath)) {
+    Remove-Item -LiteralPath $snapshotPath -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
 
