@@ -39,8 +39,6 @@ def register_extended_tools(mcp: FastMCP, runtime: Runtime) -> None:
 
         body = text.strip()
         body = f"{body}\n\n{target_url}" if body else target_url
-        if len(body) > 500:
-            raise ValueError("quoted text and URL exceed the 500-character MVP limit")
         if audience == "public_explicit" and not runtime.bot.allow_public:
             raise PermissionError("public_explicit is disabled for this bot")
         if audience == "direct" and "@" not in body:

@@ -68,4 +68,4 @@ if (-not $ready) {
     throw "CMX remote MCP did not become healthy: $tail"
 }
 
-Write-Host "CMX remote MCP started on loopback port $Port (PID $($process.Id))." -ForegroundColor Green
+Write-Host "CMX profiled remote MCP started on loopback port $Port (PID $($process.Id))." -ForegroundColor Green

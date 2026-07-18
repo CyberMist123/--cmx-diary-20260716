@@ -171,8 +171,6 @@ def build_server(
             text = text.strip()
             if not text:
                 raise ValueError("text is required")
-            if len(text) > 500:
-                raise ValueError("text exceeds the configured 500-character MVP limit")
             media_ids = [str(item) for item in (media_ids or [])]
             if len(media_ids) > 4:
                 raise ValueError("at most four media_ids are allowed")
@@ -459,7 +457,8 @@ def _build_remote_server(
             except MastodonApiError as exc:
                 if _visibility_failure(exc):
                     runtime.db.invalidate_status(runtime.bot.bot_id, status_id)
-                continue
+                    continue
+                raise
             refreshed = compact_status(raw)
             runtime.db.cache_statuses(runtime.bot.bot_id, [refreshed])
             items.append(compact_v2_status(raw))
@@ -594,8 +593,6 @@ def _remote_post(runtime: Runtime, check_scope: Any, action: str, text: str,
             raise PermissionError("public_explicit is disabled for this bot")
     if visibility == "direct" and "@" not in text:
         raise ValueError("direct posts must mention at least one recipient")
-    if len(text) > 500:
-        raise ValueError("assembled post exceeds the 500-character limit")
     validated_poll = _validate_poll(poll) if poll is not None else None
     key = _operation_key(runtime.bot.bot_id, action, request_id, status_id, text)
     claim = runtime.db.claim_dedup(bot_id=runtime.bot.bot_id, operation=action, request_id=key)
@@ -657,6 +654,9 @@ def _validate_poll_choices(choices: list[int] | None, poll: dict) -> list[int]:
 
 
 def _visibility_failure(error: MastodonApiError) -> bool:
+    status_code = getattr(error, "status_code", None)
+    if status_code is not None:
+        return status_code in {403, 404}
     return bool(re.search(r"returned (?:403|404)\b", str(error)))
 
 

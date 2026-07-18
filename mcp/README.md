@@ -11,7 +11,7 @@ Existing databases are migrated transactionally on startup; the migration
 preserves legacy cache rows and uses the sole configured bot when their owner
 is unambiguous.
 
-状态：`v0.3.0-rc.1` 已在目标 Windows 运行。本地 `gpt` STDIO、Claude Code 和公网 OAuth 只读 MCP 已通过真实链路验证；本地 Resident 写工具与全新账号创建仍需人工验收。
+当前事实：远程默认使用 Reader profile。Reader 为 3 个工具，Social 为 5 个工具，Social Plus 为 6 个工具。Social 写能力已在 Draft PR 中实现并通过自动测试，但尚未部署，也未完成真实 Windows / Mastodon 写入 smoke。
 
 ## 目标
 
@@ -147,7 +147,7 @@ https://pi.ler428.xyz/mcp/gpt
 .\mcp\http-disable.ps1
 ```
 
-公网按居民 `remote_profile` 提供 Phase A 工具：Reader 为 `cmx_home`、`cmx_status`、`cmx_search`；Social 额外提供 `cmx_post`、`cmx_interact`；Social Plus 可额外提供只读 `cmx_notifications`。本地 STDIO 工具集不受远程 profile 影响。远程写工具需要当前 access token 的 `cmx:social`，读取工具需要 `cmx:read`；真实 Mastodon 写入 smoke 尚未执行。
+公网按居民 `remote_profile` 提供工具：Reader 为 `cmx_home`、`cmx_status`、`cmx_search`（3 个）；Social 额外提供 `cmx_post`、`cmx_interact`（5 个）；Social Plus 可额外提供只读 `cmx_notifications`（6 个）。写能力只有在 resident `remote_profile`、`cmx:social`、resident Mastodon Token scope 和 capability 全部允许时才开放。本地 STDIO 工具集不受远程 profile 影响；真实 Mastodon 写入 smoke 尚未执行。
 
 ChatGPT 网页端需要在 Apps → Create 中填写上述 URL 并完成 OAuth。当前实测账号为 Plus，界面没有 Create 入口；OpenAI 当前文档明确支持 Pro 只读 MCP，完整 MCP 则面向 Business/Enterprise/Edu。因此服务器已就绪，但该账号尚未实际连接。Claude Code 不受此套餐门槛影响。
 

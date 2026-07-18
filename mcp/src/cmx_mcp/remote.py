@@ -188,11 +188,16 @@ main{{max-width:560px;margin:8vh auto;padding:32px;background:#1f2937;border-rad
         return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 
     async def health(_request: Request) -> Response:
+        social_enabled = any(
+            bot.enabled and bot.remote_profile in {"social", "social_plus"}
+            for bot in database.list_bots()
+        )
         return JSONResponse(
             {
                 "ok": True,
                 "transport": "streamable-http",
-                "mode": "read-only",
+                "mode": "profiled",
+                "social_enabled": social_enabled,
             },
             headers={"Cache-Control": "no-store"},
         )
@@ -388,19 +393,25 @@ def _approval_error(message: str) -> HTMLResponse:
 def _consent_copy(scopes: list[str] | tuple[str, ...], bot: Any) -> tuple[str, str]:
     has_social = SOCIAL_SCOPE in scopes
     has_notifications = bot.remote_profile == "social_plus" and bot.remote_notifications
+    has_polls = has_social and bool(getattr(bot, "remote_polls", False))
+    has_boosts = has_social and bool(getattr(bot, "remote_boosts", False))
     title = "允许 CMX 社交 MCP 连接？" if has_social else "允许只读 CMX MCP 连接？"
-    body = (
-        "该客户端可以读取该居民有权查看的 CMX 内容。不能发帖、回复、编辑、点赞、收藏或投票。"
-        if not has_social
-        else "该客户端可以读取内容，并代表该居民：发帖和回复、在安全边界内编辑纯文本、点赞、取消点赞、收藏、取消收藏和参与投票。"
-    )
+    if not has_social:
+        body = "该客户端可以读取该居民有权查看的 CMX 内容。不能执行社交写操作。"
+    else:
+        capabilities = ["发帖和回复", "安全纯文本编辑", "点赞和取消点赞", "收藏和取消收藏"]
+        if has_polls:
+            capabilities.append("创建投票和参与投票")
+        if has_boosts:
+            capabilities.append("转发和取消转发")
+        body = "该客户端可以读取内容，并代表该居民：" + "、".join(capabilities) + "。"
     if has_notifications:
         body += "另可只读查看通知；不会执行清除、标记已读或其他通知写操作。"
     return title, body
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the read-only CMX remote MCP")
+    parser = argparse.ArgumentParser(description="Run the profiled CMX remote MCP")
     parser.parse_args()
     paths = Paths.discover()
     settings = RemoteSettings.load(paths)

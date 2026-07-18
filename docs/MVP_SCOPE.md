@@ -49,7 +49,7 @@
 - AI 默认不读取全站，不因每条动态自动触发；
 - AI/MCP 不直连 PostgreSQL，不使用 Owner 管理 Token。
 
-当前实现状态：真实 `gpt` 居民、本地 STDIO/Claude Code 与公网 OAuth 只读 MCP 已验证；Resident 写工具、新账号完整向导和独立 CMX 设置页仍未验收。公网 MCP 不提供写工具。
+当前实现状态：远程默认使用 Reader profile（3 个工具）；Social（5 个）和 Social Plus（6 个）写能力已在 Draft PR 中实现并通过自动测试，但尚未部署，也未完成真实 Windows / Mastodon 写入 smoke。Resident 写工具、新账号完整向导和独立 CMX 设置页仍未验收。
 
 ## Beta 架构
 
@@ -105,7 +105,7 @@ Sidekiq / PostgreSQL / Redis / 本地媒体
 2. 同源 CMX 移动网页。
 3. 中文内容可见性语义与博客/日记视图。
 4. 独立 AI 居民账号及最小 Token（首个 `gpt` 已完成）。
-5. 窄权限 MCP（本地读写、远程只读；读链路已完成，写链路待人工验收）。
+5. 窄权限 MCP（本地读写、远程按 Reader/Social/Social Plus profile 开放；Social 写入尚未部署或真实 smoke）。
 6. 邀请真人账号和指定圈子权限。
 
 ## 安全边界

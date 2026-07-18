@@ -164,13 +164,49 @@ def test_resource_and_redirect_boundaries(tmp_path):
 
 
 def test_consent_copy_matches_requested_scope_and_profile():
-    reader = type("Bot", (), {"remote_profile": "reader", "remote_notifications": False})()
+    reader = type("Bot", (), {"remote_profile": "reader", "remote_notifications": False,
+                               "remote_polls": False, "remote_boosts": False})()
     title, body = _consent_copy([READ_SCOPE], reader)
-    assert "只读" in title
-    assert "不能发帖" in body
-    social = type("Bot", (), {"remote_profile": "social_plus", "remote_notifications": True})()
+    assert "\u53ea\u8bfb" in title
+    assert "\u4e0d\u80fd\u6267\u884c\u793e\u4ea4\u5199\u64cd\u4f5c" in body
+    social = type("Bot", (), {"remote_profile": "social", "remote_notifications": False,
+                               "remote_polls": False, "remote_boosts": False})()
     title, body = _consent_copy([READ_SCOPE, SOCIAL_SCOPE], social)
-    assert "社交" in title
-    assert "发帖" in body
-    assert "只读查看通知" in body
+    assert "\u793e\u4ea4" in title
+    assert "\u53d1\u5e16" in body
+    assert "\u6295\u7968" not in body
+    assert "\u8f6c\u53d1" not in body
     assert "Phase 0" not in body
+
+    polls = type("Bot", (), {"remote_profile": "social", "remote_notifications": False,
+                              "remote_polls": True, "remote_boosts": False})()
+    _, body = _consent_copy([READ_SCOPE, SOCIAL_SCOPE], polls)
+    assert "\u521b\u5efa\u6295\u7968\u548c\u53c2\u4e0e\u6295\u7968" in body
+    assert "\u8f6c\u53d1\u548c\u53d6\u6d88\u8f6c\u53d1" not in body
+
+    boosts = type("Bot", (), {"remote_profile": "social", "remote_notifications": False,
+                               "remote_polls": False, "remote_boosts": True})()
+    _, body = _consent_copy([READ_SCOPE, SOCIAL_SCOPE], boosts)
+    assert "\u8f6c\u53d1\u548c\u53d6\u6d88\u8f6c\u53d1" in body
+    assert "\u521b\u5efa\u6295\u7968\u548c\u53c2\u4e0e\u6295\u7968" not in body
+
+    plus = type("Bot", (), {"remote_profile": "social_plus", "remote_notifications": True,
+                             "remote_polls": True, "remote_boosts": True})()
+    _, body = _consent_copy([READ_SCOPE, SOCIAL_SCOPE], plus)
+    assert "\u521b\u5efa\u6295\u7968\u548c\u53c2\u4e0e\u6295\u7968" in body
+    assert "\u8f6c\u53d1\u548c\u53d6\u6d88\u8f6c\u53d1" in body
+    assert "\u53ea\u8bfb\u67e5\u770b\u901a\u77e5" in body
+    assert "\u4e0d\u4f1a\u6267\u884c\u6e05\u9664\u3001\u6807\u8bb0\u5df2\u8bfb\u6216\u5176\u4ed6\u901a\u77e5\u5199\u64cd\u4f5c" in body
+
+    for polls in (False, True):
+        for boosts in (False, True):
+            for notifications in (False, True):
+                profile = "social_plus" if notifications else "social"
+                bot = type("Bot", (), {"remote_profile": profile,
+                                       "remote_notifications": notifications,
+                                       "remote_polls": polls,
+                                       "remote_boosts": boosts})()
+                _, combination = _consent_copy([READ_SCOPE, SOCIAL_SCOPE], bot)
+                assert ("\u521b\u5efa\u6295\u7968\u548c\u53c2\u4e0e\u6295\u7968" in combination) is polls
+                assert ("\u8f6c\u53d1\u548c\u53d6\u6d88\u8f6c\u53d1" in combination) is boosts
+                assert ("\u53ea\u8bfb\u67e5\u770b\u901a\u77e5" in combination) is notifications

@@ -2,7 +2,7 @@
 
 > 状态：产品与安全设计审查通过，可以进入 Phase 0。本文档本身不代表功能已经实现、部署或验证。  
 > 目标分支：`codex/cmx-mcp-onboarding`。  
-> 当前基线：目标 Windows 仍部署现有只读版本；远程 Streamable HTTP MCP 仍以 `read_only=True` 构建，本地 STDIO 已有部分居民写能力。
+> 当前事实：远程默认使用 Reader profile。Reader 3 个工具，Social 5 个工具，Social Plus 6 个工具。Social 写能力已在 Draft PR 中实现并通过自动测试，但尚未部署，也未完成真实 Windows / Mastodon 写入 smoke。
 
 ## 1. 一句话目标
 
@@ -32,7 +32,7 @@ cmx_status
 cmx_search
 ```
 
-远程服务仍以 `read_only=True` 构建，OAuth 当前只接受 `cmx:read`。
+远程服务默认构建 Reader profile；OAuth 读取使用 `cmx:read`，Social 写能力还需 `cmx:social` 及居民 Token scope/capability 联合允许。
 
 当前本地 STDIO 代码可见能力包括：
 
@@ -1066,7 +1066,7 @@ write:bookmarks
 
 ## 16. 文档同步门槛
 
-当前以下文档仍把公网 Streamable HTTP 描述为固定/永远只读，和本方案未来 Social profile 直接矛盾：
+历史文档曾把公网 Streamable HTTP 描述为固定/永远只读；当前事实已统一为 Reader 默认、Social/Social Plus 按 profile 开放。
 
 ```text
 PROJECT.md
@@ -1236,7 +1236,7 @@ docs/CMX_MCP_SMALL_INSTANCE_DESIGN.md
 
 ### 19.8 文档与部署
 
-- Phase A 开放远程写前，PROJECT.md、README、SMALL_INSTANCE_DESIGN 已消除“永远只读”矛盾；
+- 当前文档已统一为 Reader 默认、Social/Social Plus 按 profile 开放；Social 尚未部署，也未完成真实写入 smoke；
 - 文档不把未实现能力写成当前事实；
 - Phase 0 审核通过前不部署远程 Social；
 - 代码测试通过后仍需目标 Windows 与真实居民账号 smoke。

@@ -60,7 +60,7 @@ if ($LASTEXITCODE -ne 0) { throw "Resident was saved, but the independent MCP sm
 
 $httpMarker = Join-Path $Root "runtime\http-enabled"
 if (Test-Path -LiteralPath $httpMarker) {
-    Write-Host "Refreshing the read-only remote MCP resident map..." -ForegroundColor Cyan
+    Write-Host "Refreshing the profiled remote MCP resident map..." -ForegroundColor Cyan
     & (Join-Path $Root "http-stop.ps1")
     & (Join-Path $Root "http-start.ps1")
 }

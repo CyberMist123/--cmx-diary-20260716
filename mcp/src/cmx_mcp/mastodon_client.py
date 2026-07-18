@@ -18,7 +18,9 @@ class Page:
 
 
 class MastodonApiError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class MastodonClient:
@@ -180,19 +182,26 @@ class MastodonClient:
         try:
             response = self._client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
-            raise MastodonApiError(
-                f"Mastodon request failed: {exc.__class__.__name__}"
-            ) from exc
+            raise MastodonApiError("Mastodon connection failed") from exc
         if response.is_redirect:
             raise MastodonApiError(
                 f"Mastodon API unexpectedly redirected ({response.status_code})"
             )
         if response.status_code >= 400:
+            if response.status_code == 401:
+                raise MastodonApiError("resident token is invalid", status_code=401)
+            if response.status_code == 422:
+                raise MastodonApiError("content exceeds instance limit", status_code=422)
+            if response.status_code == 429:
+                raise MastodonApiError("Mastodon rate limit exceeded", status_code=429)
+            if response.status_code >= 500:
+                raise MastodonApiError("Mastodon service unavailable", status_code=response.status_code)
             detail = _safe_error_detail(response)
             suffix = f": {detail}" if detail else ""
             raise MastodonApiError(
                 f"Mastodon API {method} {path} returned "
-                f"{response.status_code} {response.reason_phrase}{suffix}"
+                f"{response.status_code} {response.reason_phrase}{suffix}",
+                status_code=response.status_code,
             )
         return response
 

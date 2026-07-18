@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 
+import httpx
+import pytest
+
 from cmx_mcp.compact import compact_v2_status
-from cmx_mcp.mastodon_client import MastodonApiError
+from cmx_mcp.mastodon_client import MastodonApiError, MastodonClient
 from cmx_mcp.server import build_server
 from cmx_mcp.scope import READ_SCOPE, SOCIAL_SCOPE, require_request_scope
 from cmx_mcp.server import _remote_post
@@ -76,20 +79,70 @@ def test_remote_search_revalidates_candidates_and_removes_forbidden_cache():
     runtime = _runtime()
     class DB:
         def __init__(self): self.removed = []
-        def search_statuses(self, bot_id, query, limit): return [{"id": "gone"}, {"id": "ok"}]
+        def search_statuses(self, bot_id, query, limit): return [{"id": "gone"}, {"id": "forbidden"}, {"id": "ok"}]
         def invalidate_status(self, bot_id, status_id): self.removed.append((bot_id, status_id))
         def cache_statuses(self, bot_id, statuses): pass
     class Client:
         def get_status(self, status_id):
             if status_id == "gone": raise MastodonApiError("Mastodon API GET /api/v1/statuses/gone returned 404 Not Found")
+            if status_id == "forbidden": raise MastodonApiError("Mastodon API GET /api/v1/statuses/forbidden returned 403 Forbidden", status_code=403)
             return {"id": "ok", "created_at": "2026-07-18T00:00:00Z", "content": "<p>fresh</p>", "account": {"acct": "alice"}}
     runtime.db, runtime.client = DB(), Client()
     server = build_server(runtime, remote_profile="reader", remote_capabilities=runtime.bot)
     result = server._tool_manager.get_tool("cmx_search").fn("fresh", 1, _ScopeContext())
     assert result["items"][0]["author"] == "alice"
     assert result["items"][0]["text"] == "fresh"
-    assert runtime.db.removed == [("gpt", "gone")]
+    assert runtime.db.removed == [("gpt", "gone"), ("gpt", "forbidden")]
     assert _visibility_failure(MastodonApiError("Mastodon API GET /x returned 403 Forbidden"))
+
+
+@pytest.mark.parametrize("error", [
+    MastodonApiError("resident token is invalid", status_code=401),
+    MastodonApiError("Mastodon rate limit exceeded", status_code=429),
+    MastodonApiError("Mastodon service unavailable", status_code=500),
+    MastodonApiError("Mastodon connection failed"),
+])
+def test_remote_search_propagates_non_visibility_errors(error):
+    runtime = _runtime()
+    class DB:
+        def search_statuses(self, bot_id, query, limit): return [{"id": "candidate"}]
+        def invalidate_status(self, *args): raise AssertionError("non-visibility error was cleared")
+    class Client:
+        def get_status(self, status_id): raise error
+    runtime.db, runtime.client = DB(), Client()
+    server = build_server(runtime, remote_profile="reader", remote_capabilities=runtime.bot)
+    with pytest.raises(MastodonApiError) as caught:
+        server._tool_manager.get_tool("cmx_search").fn("query", 1, _ScopeContext())
+    assert caught.value is error
+
+
+def test_remote_post_does_not_reject_or_truncate_long_url_text():
+    runtime = _runtime()
+    text = "https://example.test/" + "x" * 450
+    class DB:
+        def claim_dedup(self, **_): return {"claimed": True, "state": "pending"}
+        def finish_dedup(self, **_): pass
+        def cache_statuses(self, *args): pass
+    class Client:
+        def publish(self, **kwargs): self.published = kwargs; return {"id": "new", "created_at": "now"}
+    runtime.db, runtime.client = DB(), Client()
+    result = _remote_post(runtime, lambda _ctx: None, "create", text, None, "residents", None, "req-long", "public")
+    assert result["id"] == "new"
+    assert runtime.client.published["text"] == text
+
+
+def test_mastodon_422_becomes_compact_content_limit_error():
+    client = object.__new__(MastodonClient)
+    client._client = httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(422, json={"error": "too long"})),
+        base_url="https://mastodon.example",
+    )
+    try:
+        with pytest.raises(MastodonApiError, match="^content exceeds instance limit$") as caught:
+            client._request("POST", "/api/v1/statuses")
+        assert caught.value.status_code == 422
+    finally:
+        client.close()
 
 
 def test_scope_guard_fails_closed_without_context_or_state():
