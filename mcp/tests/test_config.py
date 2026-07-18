@@ -24,12 +24,14 @@ def test_loads_web_domain_from_env_production_and_defaults_to_https(
     monkeypatch.delenv("CMX_MASTODON_HOST", raising=False)
     monkeypatch.delenv("WEB_DOMAIN", raising=False)
     monkeypatch.delenv("CMX_MASTODON_BASE_URL", raising=False)
+    monkeypatch.delenv("CMX_MAX_STATUS_CHARS", raising=False)
 
     settings = InstanceSettings.load(_paths(home))
 
     assert settings.host_header == "pi.example.test"
     assert settings.public_base_url == "https://pi.example.test"
     assert settings.base_url == "https://pi.example.test"
+    assert settings.max_status_chars == 5000
 
 
 def test_allows_explicit_loopback_http(tmp_path: Path, monkeypatch) -> None:
@@ -50,4 +52,14 @@ def test_rejects_unrelated_https_host(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CMX_MASTODON_BASE_URL", "https://evil.example")
 
     with pytest.raises(RuntimeError, match="must match"):
+        InstanceSettings.load(_paths(home))
+
+
+def test_rejects_mcp_status_limit_above_mastodon_override(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "mcp"
+    home.mkdir()
+    (tmp_path / ".env.production").write_text("WEB_DOMAIN=pi.example.test\n", encoding="utf-8")
+    monkeypatch.setenv("CMX_MAX_STATUS_CHARS", "5001")
+
+    with pytest.raises(RuntimeError, match="between 1 and 5000"):
         InstanceSettings.load(_paths(home))
