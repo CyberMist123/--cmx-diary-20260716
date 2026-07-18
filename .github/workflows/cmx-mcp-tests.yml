@@ -3,12 +3,16 @@ name: CMX MCP tests
 on:
   pull_request:
     paths:
+      - "compose.yml"
+      - "mastodon-overrides/**"
       - "mcp/**"
       - ".github/workflows/cmx-mcp-tests.yml"
   push:
     branches:
       - main
     paths:
+      - "compose.yml"
+      - "mastodon-overrides/**"
       - "mcp/**"
       - ".github/workflows/cmx-mcp-tests.yml"
 
