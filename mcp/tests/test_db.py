@@ -35,6 +35,50 @@ def test_status_cache_isolated_by_bot_id(tmp_path: Path):
     assert db.search_statuses("b", "private", 5) == []
 
 
+def test_upsert_bot_round_trips_remote_profile_and_capabilities(tmp_path: Path):
+    db = Database(tmp_path / "cmx.sqlite3")
+    db.initialize()
+    common = {
+        "bot_id": "social-bot",
+        "display_name": "Social Bot",
+        "profile": "resident",
+        "media_root": tmp_path / "media",
+        "token_ref": "social.token",
+        "default_audience": "residents",
+        "allow_public": False,
+    }
+    db.upsert_bot(
+        **common,
+        remote_profile="social",
+        remote_polls=True,
+        remote_boosts=False,
+        remote_notifications=True,
+    )
+    created = db.get_bot("social-bot")
+    assert created.remote_profile == "social"
+    assert created.remote_polls is True
+    assert created.remote_boosts is False
+    assert created.remote_notifications is True
+    assert [(bot.bot_id, bot.remote_profile) for bot in db.list_bots()] == [("social-bot", "social")]
+
+    db.upsert_bot(
+        **{**common, "display_name": "Social Plus Bot"},
+        remote_profile="social_plus",
+        remote_polls=False,
+        remote_boosts=True,
+        remote_notifications=True,
+    )
+    updated = db.get_bot("social-bot")
+    assert updated.display_name == "Social Plus Bot"
+    assert updated.remote_profile == "social_plus"
+    assert updated.remote_polls is False
+    assert updated.remote_boosts is True
+    assert updated.remote_notifications is True
+    listed = db.list_bots()
+    assert len(listed) == 1
+    assert listed[0] == updated
+
+
 def test_legacy_cache_migrates_without_losing_single_bot_rows(tmp_path: Path):
     path = tmp_path / "legacy.sqlite3"
     import sqlite3

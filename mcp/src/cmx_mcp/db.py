@@ -198,7 +198,7 @@ class Database:
                     bot_id, display_name, profile, media_root, token_ref,
                     default_audience, allow_public, enabled, created_at, updated_at,
                     remote_profile, remote_polls, remote_boosts, remote_notifications
-                ) VALUES(?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,1,?,?,?,?,?,?)
                 ON CONFLICT(bot_id) DO UPDATE SET
                     display_name=excluded.display_name,
                     profile=excluded.profile,
