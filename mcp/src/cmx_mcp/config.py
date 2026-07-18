@@ -46,6 +46,7 @@ class InstanceSettings:
     max_context_ancestors: int = 10
     max_context_descendants: int = 20
     max_context_chars: int = 16000
+    max_status_chars: int = 5000
     max_media_bytes: int = 20 * 1024 * 1024
 
     @property
@@ -97,6 +98,7 @@ class InstanceSettings:
             max_context_ancestors=_bounded_int("CMX_CONTEXT_ANCESTORS", 10, 1, 30),
             max_context_descendants=_bounded_int("CMX_CONTEXT_DESCENDANTS", 20, 1, 50),
             max_context_chars=_bounded_int("CMX_CONTEXT_CHARS", 16000, 1000, 100000),
+            max_status_chars=_bounded_int("CMX_MAX_STATUS_CHARS", 5000, 1, 5000),
             max_media_bytes=_bounded_int(
                 "CMX_MAX_MEDIA_BYTES", 20 * 1024 * 1024, 1024, 100 * 1024 * 1024
             ),
