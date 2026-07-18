@@ -77,3 +77,59 @@ def compact_status(raw: dict[str, Any]) -> dict[str, Any]:
         "bookmarked": bool(source.get("bookmarked", False)),
         "reblogged": bool(source.get("reblogged", False)),
     }
+
+
+def compact_v2_status(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return the sparse Phase A representation; omit absent/empty fields."""
+    wrapper = raw
+    source = raw.get("reblog") or raw
+    account = source.get("account") or {}
+    result: dict[str, Any] = {
+        "id": str(source.get("id") or wrapper.get("id") or ""),
+        "author": str(account.get("acct") or account.get("username") or ""),
+        "at": source.get("created_at"),
+        "text": strip_html(source.get("content")),
+    }
+    optional = {
+        "reply_to": source.get("in_reply_to_id"),
+        "via": (raw.get("account") or {}).get("acct") if raw.get("reblog") else None,
+        "vis": source.get("visibility") if source.get("visibility") not in (None, "private") else None,
+        "cw": source.get("spoiler_text") or None,
+    }
+    if source.get("visibility") == "direct":
+        recipients = [str(item.get("acct") or "") for item in source.get("mentions") or []]
+        recipients = [item for item in recipients if item]
+        if recipients:
+            optional["to"] = recipients
+    for key, value in optional.items():
+        if value not in (None, "", [], False):
+            result[key] = value
+    attachments = source.get("media_attachments") or []
+    if attachments:
+        result["media"] = [
+            {key: value for key, value in {
+                "type": item.get("type"),
+                "alt": item.get("description"),
+            }.items() if value not in (None, "")}
+            for item in attachments
+        ]
+    poll = source.get("poll")
+    if poll:
+        result["poll"] = {
+            key: value for key, value in {
+                "options": [str(item.get("title") or "") for item in poll.get("options") or []],
+                "expired": poll.get("expired"),
+                "multiple": poll.get("multiple"),
+                "voted": poll.get("voted"),
+            }.items() if value not in (None, "", [], False)
+        }
+    state = {
+        key: value for key, value in {
+            "favourite": source.get("favourited"),
+            "bookmark": source.get("bookmarked"),
+            "reblog": source.get("reblogged"),
+        }.items() if value
+    }
+    if state:
+        result["state"] = state
+    return {key: value for key, value in result.items() if value not in (None, "", [], False)}

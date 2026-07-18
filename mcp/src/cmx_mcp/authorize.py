@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from .compact import compact_account
-from .config import InstanceSettings, Paths
+from .config import InstanceSettings, Paths, validate_remote_profile
 from .db import Database
 from .mastodon_client import MastodonClient
 from .secrets import write_secret
@@ -47,6 +47,10 @@ def main() -> None:
         default="residents",
     )
     parser.add_argument("--allow-public", action="store_true")
+    parser.add_argument("--remote-profile", choices=["disabled", "reader", "social", "social_plus"], default="reader")
+    parser.add_argument("--remote-polls", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--remote-boosts", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--remote-notifications", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--timeout", type=int, default=300)
     args = parser.parse_args()
 
@@ -96,6 +100,10 @@ def main() -> None:
         token_ref=token_ref,
         default_audience=args.default_audience,
         allow_public=bool(args.allow_public),
+        remote_profile=validate_remote_profile(args.remote_profile)[0],
+        remote_polls=bool(args.remote_polls),
+        remote_boosts=bool(args.remote_boosts),
+        remote_notifications=bool(args.remote_notifications),
     )
 
     executable = paths.home / ".venv" / "Scripts" / "cmx-mcp.exe"

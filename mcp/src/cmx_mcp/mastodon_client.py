@@ -64,6 +64,28 @@ class MastodonClient:
     def context(self, status_id: str) -> dict[str, Any]:
         return self._json("GET", f"/api/v1/statuses/{status_id}/context")
 
+    def account_statuses(self, account_id: str, *, limit: int, max_id: str | None = None) -> Page:
+        response = self._request(
+            "GET", f"/api/v1/accounts/{account_id}/statuses",
+            params=_drop_none({"limit": limit, "max_id": max_id}),
+        )
+        return Page(response.json(), _next_cursor(response))
+
+    def favourites(self, *, limit: int, max_id: str | None = None) -> Page:
+        response = self._request("GET", "/api/v1/favourites", params=_drop_none({"limit": limit, "max_id": max_id}))
+        return Page(response.json(), _next_cursor(response))
+
+    def bookmarks(self, *, limit: int, max_id: str | None = None) -> Page:
+        response = self._request("GET", "/api/v1/bookmarks", params=_drop_none({"limit": limit, "max_id": max_id}))
+        return Page(response.json(), _next_cursor(response))
+
+    def pinned_statuses(self, account_id: str, *, limit: int = 3) -> list[dict[str, Any]]:
+        response = self._request(
+            "GET", f"/api/v1/accounts/{account_id}/statuses",
+            params={"pinned": "true", "limit": limit},
+        )
+        return response.json()
+
     def publish(
         self,
         *,
@@ -71,6 +93,7 @@ class MastodonClient:
         visibility: str,
         reply_to_id: str | None,
         media_ids: Iterable[str],
+        poll: dict[str, Any] | None = None,
         idempotency_key: str,
     ) -> dict[str, Any]:
         fields: list[tuple[str, str]] = [
@@ -81,11 +104,25 @@ class MastodonClient:
             fields.append(("in_reply_to_id", reply_to_id))
         for media_id in media_ids:
             fields.append(("media_ids[]", str(media_id)))
+        if poll:
+            fields.append(("poll[expires_in]", str(poll["expires_in"])))
+            fields.append(("poll[multiple]", "true" if poll.get("multiple") else "false"))
+            fields.append(("poll[hide_totals]", "true" if poll.get("hide_totals") else "false"))
+            for option in poll["options"]:
+                fields.append(("poll[options][]", str(option)))
         return self._json(
             "POST",
             "/api/v1/statuses",
             data=fields,
             headers={"Idempotency-Key": idempotency_key},
+        )
+
+    def edit_status(
+        self, status_id: str, *, text: str, idempotency_key: str,
+    ) -> dict[str, Any]:
+        return self._json(
+            "PUT", f"/api/v1/statuses/{status_id}",
+            data={"status": text}, headers={"Idempotency-Key": idempotency_key},
         )
 
     def react(self, status_id: str, action: str) -> dict[str, Any]:
@@ -100,6 +137,9 @@ class MastodonClient:
         if action not in allowed:
             raise ValueError(f"Unsupported reaction: {action}")
         return self._json("POST", f"/api/v1/statuses/{status_id}/{action}")
+
+    def vote_poll(self, poll_id: str, choices: list[int]) -> dict[str, Any]:
+        return self._json("POST", f"/api/v1/polls/{poll_id}/votes", data=[("choices[]", str(choice)) for choice in choices])
 
     def upload_image(
         self,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
+import secrets
 from contextlib import ExitStack
 from typing import Literal
 
@@ -51,7 +51,7 @@ def register_extended_tools(mcp: FastMCP, runtime: Runtime) -> None:
             "direct": "direct",
             "public_explicit": "public",
         }[audience]
-        stable_request = request_id.strip() if request_id else str(int(time.time()) // 600)
+        stable_request = request_id.strip() if request_id and request_id.strip() else f"best-effort:{secrets.token_urlsafe(16)}"
         key_payload = {
             "bot_id": runtime.bot.bot_id,
             "action": "quote_link",
@@ -64,29 +64,27 @@ def register_extended_tools(mcp: FastMCP, runtime: Runtime) -> None:
             json.dumps(key_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
 
-        cached = runtime.db.get_dedup(key)
-        if cached:
-            cached["deduplicated"] = True
-            runtime.audit("quote_link", "deduplicated", target_id=cached.get("status_id"))
-            return cached
-
-        raw = runtime.client.publish(
-            text=body,
-            visibility=visibility,
-            reply_to_id=None,
-            media_ids=[],
-            idempotency_key=key,
-        )
-        published_id = str(raw.get("id") or "")
-        result = {
-            "ok": True,
-            "status_id": published_id,
-            "quoted_status_id": status_id,
-            "quoted_url": target_url,
-            "audience": audience,
-            "deduplicated": False,
-        }
-        runtime.db.put_dedup(key, runtime.bot.bot_id, result)
+        claim = runtime.db.claim_dedup(bot_id=runtime.bot.bot_id, operation="quote_link", request_id=key)
+        if not claim["claimed"]:
+            if claim["state"] == "succeeded":
+                result = dict(claim["response"])
+                result["deduplicated"] = True
+                return result
+            raise RuntimeError("quote request is already in progress")
+        try:
+            raw = runtime.client.publish(
+                text=body, visibility=visibility, reply_to_id=None,
+                media_ids=[], idempotency_key=key,
+            )
+            published_id = str(raw.get("id") or "")
+            result = {
+                "ok": True, "status_id": published_id, "quoted_status_id": status_id,
+                "quoted_url": target_url, "audience": audience, "deduplicated": False,
+            }
+            runtime.db.finish_dedup(bot_id=runtime.bot.bot_id, operation="quote_link", request_id=key, response=result)
+        except Exception:
+            runtime.db.finish_dedup(bot_id=runtime.bot.bot_id, operation="quote_link", request_id=key, error_code="external_error")
+            raise
         runtime.audit("quote_link", "create", target_id=published_id)
         return result
 

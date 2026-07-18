@@ -1,4 +1,8 @@
-# PI OS — 当前项目事实
+# PI OS – 当前项目事实
+
+## CMX Remote Social MCP v0.4.2 当前状态
+
+Phase 0、Phase A 与 Phase A+ 的代码已在 `codex/cmx-mcp-onboarding` 实现并保持在 Draft PR 中。远程默认仍为 Reader；居民可配置为 `social` 或 `social_plus`，并分别按 `cmx:social`、Mastodon resident token scope 与 capability 暴露 Phase A 工具。Phase B/C、远程部署和真实 Mastodon 写入 smoke 尚未执行。
 
 > 本文件是需求、边界、架构、进度和下一步的唯一当前事实入口。
 >

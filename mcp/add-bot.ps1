@@ -5,6 +5,9 @@ param(
     [ValidateSet("reader", "resident", "personal")][string]$Profile = "resident",
     [string]$MediaRoot = "",
     [ValidateSet("residents", "direct", "public_explicit")][string]$DefaultAudience = "residents",
+    [ValidateSet("disabled", "reader", "social", "social_plus")][string]$RemoteProfile = "reader",
+    [switch]$RemoteBoosts,
+    [switch]$RemoteNotifications,
     [switch]$AllowPublic
 )
 
@@ -27,10 +30,13 @@ $arguments = @(
     "--profile", $Profile,
     "--media-root", $MediaRoot,
     "--default-audience", $DefaultAudience
+    "--remote-profile", $RemoteProfile
 )
 if ($AllowPublic) {
     $arguments += "--allow-public"
 }
+if ($RemoteBoosts) { $arguments += "--remote-boosts" }
+if ($RemoteNotifications) { $arguments += "--remote-notifications" }
 
 & $Admin @arguments
 if ($LASTEXITCODE -ne 0) {

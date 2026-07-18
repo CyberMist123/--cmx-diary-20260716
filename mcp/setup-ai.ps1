@@ -4,6 +4,9 @@ param(
     [string]$DisplayName = "",
     [string]$Email = "",
     [ValidateSet("reader", "resident", "personal")][string]$Profile = "reader",
+    [ValidateSet("disabled", "reader", "social", "social_plus")][string]$RemoteProfile = "reader",
+    [switch]$RemoteBoosts,
+    [switch]$RemoteNotifications,
     [switch]$UseExistingAccount
 )
 
@@ -48,7 +51,7 @@ if (-not $UseExistingAccount) {
 }
 
 $authorize = Join-Path $Root "authorize-bot.ps1"
-& $authorize -BotId $BotId -DisplayName $DisplayName -Profile $Profile
+& $authorize -BotId $BotId -DisplayName $DisplayName -Profile $Profile -RemoteProfile $RemoteProfile -RemoteBoosts:$RemoteBoosts -RemoteNotifications:$RemoteNotifications
 if ($LASTEXITCODE -ne 0) { throw "Resident browser authorization failed." }
 
 $smoke = Join-Path $Root "smoke.ps1"

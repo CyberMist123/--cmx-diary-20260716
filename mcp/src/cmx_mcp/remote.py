@@ -91,7 +91,8 @@ def create_remote_app(paths: Paths | None = None) -> Starlette:
 
     def bot_is_enabled(bot_id: str) -> bool:
         try:
-            return database.get_bot(bot_id).enabled
+            bot = database.get_bot(bot_id)
+            return bot.enabled and bot.remote_profile != "disabled"
         except RuntimeError:
             return False
 
@@ -115,7 +116,8 @@ def create_remote_app(paths: Paths | None = None) -> Starlette:
         runtime = Runtime(bot.bot_id)
         server = build_server(
             runtime,
-            read_only=True,
+            remote_profile=bot.remote_profile,
+            remote_capabilities=bot,
             streamable_http_path=f"/mcp/{bot.bot_id}",
             stateless_http=True,
             json_response=True,

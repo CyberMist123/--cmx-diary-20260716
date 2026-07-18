@@ -166,7 +166,8 @@ class Database:
             bot_id UNINDEXED, status_id UNINDEXED, author_acct, text, spoiler_text,
             tokenize='unicode61 remove_diacritics 2')""")
         db.execute("""INSERT INTO status_fts(bot_id,status_id,author_acct,text,spoiler_text)
-            SELECT bot_id,status_id,author_acct,text,spoiler_text FROM status_cache""")
+            SELECT bot_id,status_id,author_acct,text,spoiler_text FROM status_cache
+            WHERE visibility IS NULL OR visibility != 'direct'""")
         db.execute("DELETE FROM schema_version")
         db.execute("INSERT INTO schema_version(version) VALUES(2)")
 
@@ -185,6 +186,10 @@ class Database:
         remote_boosts: bool = False,
         remote_notifications: bool = False,
     ) -> None:
+        if remote_profile not in {"disabled", "reader", "social", "social_plus"}:
+            raise ValueError("invalid remote_profile")
+        if not all(isinstance(value, bool) for value in (remote_polls, remote_boosts, remote_notifications)):
+            raise ValueError("remote capabilities must be boolean")
         now = int(time.time())
         with self.connect() as db:
             db.execute(
@@ -316,10 +321,11 @@ class Database:
                     ),
                 )
                 db.execute("DELETE FROM status_fts WHERE bot_id=? AND status_id=?", (bot_id, status_id))
-                db.execute(
-                    "INSERT INTO status_fts(bot_id,status_id,author_acct,text,spoiler_text) VALUES(?,?,?,?,?)",
-                    (bot_id, status_id, str(account.get("acct") or ""), text, spoiler),
-                )
+                if status.get("visibility") != "direct":
+                    db.execute(
+                        "INSERT INTO status_fts(bot_id,status_id,author_acct,text,spoiler_text) VALUES(?,?,?,?,?)",
+                        (bot_id, status_id, str(account.get("acct") or ""), text, spoiler),
+                    )
 
     def search_statuses(self, bot_id: str, query: str, limit: int) -> list[dict[str, Any]]:
         with self.connect() as db:

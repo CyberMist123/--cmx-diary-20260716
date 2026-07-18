@@ -1,5 +1,7 @@
 # CMX MCP 小实例设计
 
+> 当前远程实现状态：Phase A/A+ 已实现代码路径，但默认 profile 仍为 Reader。Social/Social Plus 只有在居民配置、OAuth scope、Mastodon resident token scope 和 capability 同时满足时才暴露对应工具；尚未部署远程 Social，也未执行真实 Mastodon 写入 smoke。Phase B/C 不在本次范围内。
+
 > 状态：`v0.3.0-rc.1`。目标 Windows 的真实 `gpt` 本地 STDIO、Claude Code 和公网 OAuth 只读链路已运行验证；新账号向导与本地写工具仍待人工验收。
 >
 > 目标部署目录：`D:\AI\PI-Personal-Instance-OS\mcp`

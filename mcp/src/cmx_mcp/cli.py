@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .compact import compact_account
-from .config import InstanceSettings, Paths
+from .config import InstanceSettings, Paths, validate_remote_profile
 from .db import Database
 from .mastodon_client import MastodonClient
 from .secrets import read_secret, write_secret
@@ -29,6 +29,10 @@ def main() -> None:
         default="residents",
     )
     add.add_argument("--allow-public", action="store_true")
+    add.add_argument("--remote-profile", choices=["disabled", "reader", "social", "social_plus"], default="reader")
+    add.add_argument("--remote-polls", action=argparse.BooleanOptionalAction, default=True)
+    add.add_argument("--remote-boosts", action=argparse.BooleanOptionalAction, default=False)
+    add.add_argument("--remote-notifications", action=argparse.BooleanOptionalAction, default=False)
 
     sub.add_parser("list-bots")
 
@@ -71,6 +75,10 @@ def main() -> None:
             token_ref=token_ref,
             default_audience=args.default_audience,
             allow_public=bool(args.allow_public),
+            remote_profile=validate_remote_profile(args.remote_profile)[0],
+            remote_polls=bool(args.remote_polls),
+            remote_boosts=bool(args.remote_boosts),
+            remote_notifications=bool(args.remote_notifications),
         )
         print(f"Saved bot '{bot_id}'. Token encrypted with Windows DPAPI.")
         return
@@ -85,6 +93,11 @@ def main() -> None:
                 "media_root": str(bot.media_root),
                 "default_audience": bot.default_audience,
                 "allow_public": bot.allow_public,
+                "remote_profile": bot.remote_profile,
+                "remote_capabilities": {
+                    "polls": bot.remote_polls, "boosts": bot.remote_boosts,
+                    "notifications": bot.remote_notifications,
+                },
             }
             for bot in db.list_bots()
         ]

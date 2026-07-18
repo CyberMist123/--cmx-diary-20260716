@@ -3,17 +3,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import secrets
 import time
 from typing import Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
-from .compact import compact_account, compact_media, compact_status
+from .compact import compact_account, compact_media, compact_status, compact_v2_status
 from .config import InstanceSettings, Paths
 from .db import Database
 from .mastodon_client import MastodonClient
 from .secrets import read_secret
 from .security import open_safe_image
+from .scope import READ_SCOPE, SOCIAL_SCOPE, require_request_scope
+
+BasicInteractAction = Literal["like", "unlike", "bookmark", "unbookmark", "vote"]
+BoostInteractAction = Literal["like", "unlike", "bookmark", "unbookmark", "vote", "boost", "unboost"]
 
 
 class Runtime:
@@ -60,8 +65,14 @@ def build_server(
     runtime: Runtime,
     *,
     read_only: bool = False,
+    remote_profile: str | None = None,
+    remote_capabilities: Any | None = None,
     **fastmcp_options: Any,
 ) -> FastMCP:
+    if remote_profile is not None:
+        return _build_remote_server(
+            runtime, profile=remote_profile, capabilities=remote_capabilities, **fastmcp_options
+        )
     mcp = FastMCP(f"CMX resident: {runtime.bot.bot_id}", **fastmcp_options)
 
     @mcp.tool()
@@ -316,7 +327,7 @@ def _publish_key(
     media_ids: list[str],
     request_id: str | None,
 ) -> str:
-    stable_request = request_id.strip() if request_id else str(int(time.time()) // 600)
+    stable_request = request_id.strip() if request_id and request_id.strip() else f"best-effort:{secrets.token_urlsafe(16)}"
     payload = {
         "bot_id": bot_id,
         "text": text,
@@ -328,6 +339,274 @@ def _publish_key(
     return hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
+
+
+def _build_remote_server(
+    runtime: Runtime,
+    *,
+    profile: str,
+    capabilities: Any | None,
+    **fastmcp_options: Any,
+) -> FastMCP:
+    """Build only the Phase A/A+ remote surface; never reuse local full tools."""
+    if profile not in {"reader", "social", "social_plus"}:
+        raise ValueError("remote profile is not ready or is disabled")
+    caps = capabilities
+    polls = bool(getattr(caps, "polls", getattr(caps, "remote_polls", True)))
+    boosts = bool(getattr(caps, "boosts", getattr(caps, "remote_boosts", False))) and profile in {"social", "social_plus"}
+    notifications = bool(getattr(caps, "notifications", getattr(caps, "remote_notifications", False))) and profile == "social_plus"
+    mcp = FastMCP(f"CMX remote resident: {runtime.bot.bot_id}", **fastmcp_options)
+
+    def read_scope(ctx: Context) -> None:
+        require_request_scope(ctx, READ_SCOPE)
+
+    def social_scope(ctx: Context) -> None:
+        require_request_scope(ctx, SOCIAL_SCOPE)
+
+    @mcp.tool()
+    def cmx_home(
+        view: Literal["timeline", "bookmarks", "likes", "mine"] = "timeline",
+        limit: int = 10,
+        cursor: str | None = None,
+        include_pinned: bool = True,
+        ctx: Context = None,
+    ) -> dict:
+        """Read timeline, bookmarks, likes, or this resident's own posts."""
+        read_scope(ctx)
+        limit = _limit(limit, min(runtime.settings.max_items, 30))
+        if view == "timeline":
+            page = runtime.client.home_timeline(limit=limit, max_id=cursor)
+        elif view == "bookmarks":
+            page = runtime.client.bookmarks(limit=limit, max_id=cursor)
+        elif view == "likes":
+            page = runtime.client.favourites(limit=limit, max_id=cursor)
+        else:
+            account = runtime.client.verify_credentials()
+            page = runtime.client.account_statuses(str(account.get("id") or ""), limit=limit, max_id=cursor)
+            page = type(page)(
+                [item for item in page.items if item.get("visibility") != "direct"], page.next_cursor
+            )
+        raw_items = page.items
+        if view == "timeline" and include_pinned and not cursor:
+            account = runtime.client.verify_credentials()
+            raw_items = [*runtime.client.pinned_statuses(str(account.get("id") or ""), limit=3), *raw_items]
+        items = [compact_v2_status(item) for item in raw_items[:limit + (3 if view == "timeline" and not cursor else 0)]]
+        runtime.db.cache_statuses(runtime.bot.bot_id, [compact_status(item) for item in raw_items])
+        runtime.audit("home", view)
+        result = {"view": view, "items": items, "scope": "resident"}
+        if page.next_cursor:
+            result["cursor"] = page.next_cursor
+        return result
+
+    @mcp.tool()
+    def cmx_status(
+        status_id: str,
+        view: Literal["compact", "thread", "media"] = "compact",
+        ctx: Context = None,
+    ) -> dict:
+        """Read one compact status, bounded thread, or safe media metadata."""
+        read_scope(ctx)
+        status_id = _id(status_id)
+        raw = runtime.client.get_status(status_id)
+        compact = compact_v2_status(raw)
+        runtime.db.cache_statuses(runtime.bot.bot_id, [compact_status(raw)])
+        if view == "compact":
+            return compact
+        if view == "media":
+            return {"id": compact["id"], "media": compact.get("media", [])}
+        context = runtime.client.context(status_id)
+        ancestors = [compact_v2_status(item) for item in context.get("ancestors") or []]
+        descendants = [compact_v2_status(item) for item in context.get("descendants") or []]
+        max_items = min(runtime.settings.max_items * 4, 120)
+        all_items = ancestors + descendants
+        truncated = len(all_items) > max_items
+        all_items = all_items[:max_items]
+        max_chars = getattr(runtime.settings, "max_context_chars", 16000)
+        used = 0
+        bounded: list[dict] = []
+        for item in all_items:
+            size = len(item.get("text") or "") + len(item.get("cw") or "")
+            if used + size > max_chars:
+                truncated = True
+                break
+            bounded.append(item)
+            used += size
+        all_items = bounded
+        ancestor_count = min(len(ancestors), len(all_items))
+        return {"status": compact, "ancestors": all_items[:ancestor_count], "descendants": all_items[ancestor_count:],
+                "truncated": truncated, "reason": "thread_safety_limit" if truncated else None}
+
+    @mcp.tool()
+    def cmx_search(query: str, limit: int = 5, ctx: Context = None) -> dict:
+        """Search only this resident's previously read, non-direct cache."""
+        read_scope(ctx)
+        query = query.strip()
+        if not query:
+            raise ValueError("query is required")
+        items = runtime.db.search_statuses(runtime.bot.bot_id, query, _limit(limit, 20))
+        return {"items": [compact_v2_status(item) for item in items], "scope": "cache",
+                "coverage": "statuses previously read by this resident MCP"}
+
+    if profile in {"social", "social_plus"}:
+        if polls:
+            @mcp.tool()
+            def cmx_post(
+                action: Literal["create", "reply", "edit"], text: str,
+                status_id: str | None = None,
+                audience: Literal["residents", "direct", "public_explicit"] = "residents",
+                poll: dict | None = None, request_id: str | None = None,
+                ctx: Context = None,
+            ) -> dict:
+                return _remote_post(runtime, social_scope, action, text, status_id, audience, poll, request_id, ctx)
+        else:
+            @mcp.tool()
+            def cmx_post(
+                action: Literal["create", "reply", "edit"], text: str,
+                status_id: str | None = None,
+                audience: Literal["residents", "direct", "public_explicit"] = "residents",
+                request_id: str | None = None, ctx: Context = None,
+            ) -> dict:
+                return _remote_post(runtime, social_scope, action, text, status_id, audience, None, request_id, ctx)
+
+        if boosts:
+            @mcp.tool()
+            def cmx_interact(action: BoostInteractAction, status_id: str, choices: list[int] | None = None, ctx: Context = None) -> dict:
+                return _remote_interact(runtime, social_scope, action, status_id, choices, ctx)
+        else:
+            @mcp.tool()
+            def cmx_interact(action: BasicInteractAction, status_id: str, choices: list[int] | None = None, ctx: Context = None) -> dict:
+                return _remote_interact(runtime, social_scope, action, status_id, choices, ctx)
+
+    if notifications:
+        @mcp.tool()
+        def cmx_notifications(limit: int = 10, cursor: str | None = None, ctx: Context = None) -> dict:
+            read_scope(ctx)
+            page = runtime.client.notifications(limit=_limit(limit, 30), max_id=cursor)
+            items = []
+            for item in page.items:
+                entry = {"id": str(item.get("id") or ""), "type": item.get("type"), "at": item.get("created_at"),
+                         "author": (item.get("account") or {}).get("acct") or ""}
+                if item.get("status"):
+                    entry["status"] = compact_v2_status(item["status"])
+                items.append({key: value for key, value in entry.items() if value not in (None, "", [])})
+            result = {"items": items}
+            if page.next_cursor:
+                result["cursor"] = page.next_cursor
+            return result
+
+    return mcp
+
+
+def _remote_interact(runtime: Runtime, check_scope: Any, action: str, status_id: str,
+                     choices: list[int] | None, ctx: Context) -> dict:
+    check_scope(ctx)
+    status_id = _id(status_id)
+    target = runtime.client.get_status(status_id)
+    if action == "vote":
+        poll = target.get("poll") or {}
+        if not poll:
+            raise ValueError("status has no poll")
+        indexes = _validate_poll_choices(choices, poll)
+        raw = runtime.client.vote_poll(str(poll["id"]), indexes)
+        return {"id": str(target.get("id") or status_id), "poll": compact_v2_status({**target, "poll": raw}).get("poll")}
+    api_action = {"like": "favourite", "unlike": "unfavourite", "boost": "reblog", "unboost": "unreblog"}.get(action, action)
+    raw = runtime.client.react(status_id, api_action)
+    compact = compact_v2_status(raw)
+    return {"id": compact.get("id", status_id), "state": compact.get("state", {})}
+
+
+def _remote_post(runtime: Runtime, check_scope: Any, action: str, text: str,
+                 status_id: str | None, audience: str, poll: dict | None,
+                 request_id: str | None, ctx: Context) -> dict:
+    check_scope(ctx)
+    text = text.strip()
+    if not text:
+        raise ValueError("text is required")
+    if action == "create" and status_id is not None:
+        raise ValueError("status_id is not accepted for create")
+    if action in {"reply", "edit"} and not status_id:
+        raise ValueError("status_id is required for reply and edit")
+    if action == "edit":
+        if audience != "residents" or poll is not None:
+            raise ValueError("edit only accepts text and status_id")
+        target = runtime.client.get_status(_id(status_id))
+        me = runtime.client.verify_credentials()
+        if str((target.get("account") or {}).get("id") or "") != str(me.get("id") or ""):
+            raise PermissionError("only the current resident may edit its own status")
+        if target.get("media_attachments") or target.get("poll") or target.get("spoiler_text") or target.get("sensitive"):
+            raise ValueError("complex statuses must be edited in the web or local client")
+        key = _operation_key(runtime.bot.bot_id, "edit", request_id, status_id)
+        raw = runtime.client.edit_status(_id(status_id), text=text, idempotency_key=key)
+        return {"id": str(raw.get("id") or status_id)}
+    target = runtime.client.get_status(_id(status_id)) if action == "reply" else None
+    if action == "reply":
+        target_visibility = (target or {}).get("visibility")
+        visibility = "direct" if target_visibility == "direct" else "private"
+        mentions = [str(item.get("acct") or "") for item in (target or {}).get("mentions") or []]
+        me_acct = str((runtime.client.verify_credentials()).get("acct") or "")
+        mentions = [item for item in dict.fromkeys(mentions) if item and item != me_acct]
+        prefix = " ".join(f"@{item}" for item in mentions)
+        text = f"{prefix} {text}".strip()
+    else:
+        visibility = {"residents": "private", "direct": "direct", "public_explicit": "public"}.get(audience)
+        if visibility is None or (audience == "public_explicit" and not runtime.bot.allow_public):
+            raise PermissionError("public_explicit is disabled for this bot")
+    if visibility == "direct" and "@" not in text:
+        raise ValueError("direct posts must mention at least one recipient")
+    if len(text) > 500:
+        raise ValueError("assembled post exceeds the 500-character limit")
+    validated_poll = _validate_poll(poll) if poll is not None else None
+    key = _operation_key(runtime.bot.bot_id, action, request_id, status_id, text)
+    claim = runtime.db.claim_dedup(bot_id=runtime.bot.bot_id, operation=action, request_id=key)
+    if not claim["claimed"]:
+        if claim["state"] == "succeeded":
+            return {"id": claim["response"]["id"], "deduplicated": True}
+        raise RuntimeError("request is already in progress")
+    try:
+        raw = runtime.client.publish(text=text, visibility=visibility, reply_to_id=status_id,
+                                     media_ids=[], poll=validated_poll, idempotency_key=key)
+        result = {"id": str(raw.get("id") or "")}
+        runtime.db.finish_dedup(bot_id=runtime.bot.bot_id, operation=action, request_id=key, response=result)
+        runtime.db.cache_statuses(runtime.bot.bot_id, [compact_status(raw)])
+        return result
+    except Exception:
+        runtime.db.finish_dedup(bot_id=runtime.bot.bot_id, operation=action, request_id=key, error_code="external_error")
+        raise
+
+
+def _operation_key(bot_id: str, operation: str, request_id: str | None, *parts: str | None) -> str:
+    # Without an explicit request ID this is deliberately best-effort: a user
+    # may publish identical text repeatedly and must not be blocked by dedup.
+    request = request_id.strip() if request_id and request_id.strip() else f"best-effort:{secrets.token_urlsafe(16)}"
+    payload = {"bot_id": bot_id, "operation": operation, "request_id": request, "parts": parts}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def _validate_poll(poll: dict) -> dict:
+    if not isinstance(poll, dict) or set(poll) - {"options", "expires_in", "multiple", "hide_totals"}:
+        raise ValueError("poll contains unsupported fields")
+    options = poll.get("options")
+    expires = poll.get("expires_in")
+    if not isinstance(options, list) or not 2 <= len(options) <= 4 or any(not isinstance(item, str) or not item.strip() for item in options):
+        raise ValueError("poll requires two to four non-empty options")
+    if not isinstance(expires, int) or not 300 <= expires <= 604800:
+        raise ValueError("poll expires_in must be between 300 and 604800 seconds")
+    if not isinstance(poll.get("multiple", False), bool) or not isinstance(poll.get("hide_totals", False), bool):
+        raise ValueError("poll boolean fields are invalid")
+    return {"options": [item.strip() for item in options], "expires_in": expires,
+            "multiple": poll.get("multiple", False), "hide_totals": poll.get("hide_totals", False)}
+
+
+def _validate_poll_choices(choices: list[int] | None, poll: dict) -> list[int]:
+    values = choices or []
+    if not values or any(not isinstance(item, int) or item < 0 for item in values) or len(set(values)) != len(values):
+        raise ValueError("poll choices must be unique non-negative integers")
+    options = poll.get("options") or []
+    if any(item >= len(options) for item in values):
+        raise ValueError("poll choice is out of range")
+    if not poll.get("multiple") and len(values) != 1:
+        raise ValueError("single-choice polls require exactly one choice")
+    return values
 
 
 def _trim_context_chars(

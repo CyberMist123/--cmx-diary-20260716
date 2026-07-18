@@ -70,3 +70,10 @@ def test_dedup_claim_is_atomic_and_recoverable(tmp_path: Path):
     assert done["response"] == {"id": "1"}
     other_bot = db.claim_dedup(bot_id="b", operation="fake", request_id="r")
     assert other_bot["claimed"] is True
+
+
+def test_direct_statuses_are_cached_but_not_indexed(tmp_path: Path):
+    db = Database(tmp_path / "cmx.sqlite3")
+    db.initialize()
+    db.cache_statuses("gpt", [{"id": "d", "account": {"acct": "a"}, "text": "secret", "visibility": "direct"}])
+    assert db.search_statuses("gpt", "secret", 5) == []

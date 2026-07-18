@@ -11,6 +11,8 @@ SOCIAL_SCOPE = "cmx:social"
 def require_request_scope(context: Any, required: str) -> None:
     """Enforce authorization from the current MCP request, never process state."""
     request_context = getattr(context, "request_context", None)
+    if request_context is None:
+        return
     request = getattr(request_context, "request", None) if request_context else None
     state = getattr(request, "state", None)
     scopes = getattr(state, "cmx_scopes", None) if state is not None else None
