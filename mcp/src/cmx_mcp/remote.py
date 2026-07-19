@@ -96,11 +96,19 @@ def create_remote_app(paths: Paths | None = None) -> Starlette:
         except RuntimeError:
             return False
 
+    def bot_remote_profile(bot_id: str) -> str | None:
+        try:
+            bot = database.get_bot(bot_id)
+            return bot.remote_profile if bot.enabled else None
+        except RuntimeError:
+            return None
+
     provider = CmxOAuthProvider(
         store=oauth_store,
         approval_origin=settings.approval_origin,
         resource_to_bot=settings.resource_to_bot,
         bot_is_enabled=bot_is_enabled,
+        bot_remote_profile=bot_remote_profile,
     )
 
     runtimes: dict[str, Runtime] = {}
@@ -138,7 +146,9 @@ def create_remote_app(paths: Paths | None = None) -> Starlette:
                 "resource": resource,
                 "authorization_servers": [settings.public_origin],
                 "bearer_methods_supported": ["header"],
-                "scopes_supported": [READ_SCOPE, SOCIAL_SCOPE],
+                "scopes_supported": ([READ_SCOPE, SOCIAL_SCOPE]
+                                      if database.get_bot(bot_id).remote_profile in {"social", "social_plus"}
+                                      else [READ_SCOPE]),
                 "resource_name": f"CMX resident {bot_id} ({database.get_bot(bot_id).remote_profile} profile)",
             },
             headers={"Cache-Control": "no-store"},
@@ -207,7 +217,7 @@ main{{max-width:560px;margin:8vh auto;padding:32px;background:#1f2937;border-rad
         issuer_url=AnyHttpUrl(settings.public_origin),
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
-            client_secret_expiry_seconds=365 * 86400,
+            client_secret_expiry_seconds=0,
             valid_scopes=[READ_SCOPE, SOCIAL_SCOPE],
             default_scopes=[READ_SCOPE],
         ),

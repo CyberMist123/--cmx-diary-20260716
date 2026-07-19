@@ -30,7 +30,6 @@ SOCIAL_SCOPE = "cmx:social"
 KNOWN_SCOPES = frozenset({READ_SCOPE, SOCIAL_SCOPE})
 AUTHORIZATION_CODE_TTL = 300
 ACCESS_TOKEN_TTL = 3600
-REFRESH_TOKEN_TTL = 30 * 86400
 PENDING_LIMIT = 64
 CLIENT_LIMIT = 100
 
@@ -85,7 +84,7 @@ class OAuthStore:
                     bot_id TEXT NOT NULL,
                     resource TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL,
+                    expires_at INTEGER,
                     created_at INTEGER NOT NULL
                 );
 
@@ -107,13 +106,40 @@ class OAuthStore:
                     ON mcp_oauth_tokens(expires_at);
                 """
             )
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(mcp_oauth_tokens)")}
+            if "expires_at" in columns:
+                notnull = next(row["notnull"] for row in db.execute("PRAGMA table_info(mcp_oauth_tokens)") if row["name"] == "expires_at")
+                if notnull:
+                    db.executescript("""
+                        BEGIN;
+                        ALTER TABLE mcp_oauth_tokens RENAME TO mcp_oauth_tokens_legacy;
+                        DROP INDEX IF EXISTS idx_mcp_oauth_family;
+                        DROP INDEX IF EXISTS idx_mcp_oauth_expiry;
+                        CREATE TABLE mcp_oauth_tokens (
+                            token_hash TEXT PRIMARY KEY,
+                            token_kind TEXT NOT NULL CHECK(token_kind IN ('access','refresh')),
+                            family_id TEXT NOT NULL, client_id TEXT NOT NULL, bot_id TEXT NOT NULL,
+                            resource TEXT NOT NULL, scopes_json TEXT NOT NULL, expires_at INTEGER,
+                            created_at INTEGER NOT NULL
+                        );
+                        INSERT INTO mcp_oauth_tokens
+                        SELECT token_hash,token_kind,family_id,client_id,bot_id,resource,scopes_json,
+                               CASE WHEN token_kind='refresh' AND expires_at >= strftime('%s','now')
+                                    THEN NULL ELSE expires_at END, created_at
+                        FROM mcp_oauth_tokens_legacy
+                        WHERE token_kind='access' OR expires_at >= strftime('%s','now');
+                        DROP TABLE mcp_oauth_tokens_legacy;
+                        CREATE INDEX IF NOT EXISTS idx_mcp_oauth_family ON mcp_oauth_tokens(family_id);
+                        CREATE INDEX IF NOT EXISTS idx_mcp_oauth_expiry ON mcp_oauth_tokens(expires_at);
+                        COMMIT;
+                    """)
         self.cleanup()
 
     def cleanup(self) -> None:
         now = int(time.time())
         with self.connect() as db:
             db.execute("DELETE FROM mcp_oauth_codes WHERE expires_at < ?", (now,))
-            db.execute("DELETE FROM mcp_oauth_tokens WHERE expires_at < ?", (now,))
+            db.execute("DELETE FROM mcp_oauth_tokens WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
 
     def client_count(self) -> int:
         with self.connect() as db:
@@ -147,7 +173,25 @@ class OAuthStore:
             ).fetchone()
         if row is None:
             return None
-        return OAuthClientInformationFull.model_validate_json(row["payload_json"])
+        client = OAuthClientInformationFull.model_validate_json(row["payload_json"])
+        if client.scope == READ_SCOPE:
+            client = client.model_copy(update={"scope": f"{READ_SCOPE} {SOCIAL_SCOPE}"})
+        return client
+
+    def list_clients(self, bot_id: str | None = None) -> list[sqlite3.Row]:
+        with self.connect() as db:
+            if bot_id:
+                return db.execute("""
+                    SELECT DISTINCT c.client_id,c.payload_json,c.created_at,c.updated_at
+                    FROM mcp_oauth_clients c JOIN mcp_oauth_tokens t ON t.client_id=c.client_id
+                    WHERE t.bot_id=? ORDER BY c.client_id
+                """, (bot_id,)).fetchall()
+            return db.execute("SELECT client_id,payload_json,created_at,updated_at FROM mcp_oauth_clients ORDER BY client_id").fetchall()
+
+    def revoke_grants(self, *, bot_id: str, client_id: str) -> int:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM mcp_oauth_tokens WHERE bot_id=? AND client_id=?", (bot_id, client_id))
+            return cursor.rowcount
 
     def save_code(self, code: AuthorizationCode) -> None:
         payload = code.model_dump(mode="json", exclude={"code"})
@@ -230,7 +274,7 @@ class OAuthStore:
                         bot_id,
                         resource,
                         scopes_json,
-                        now + REFRESH_TOKEN_TTL,
+                        None,
                         now,
                     ),
                 ],
@@ -241,7 +285,7 @@ class OAuthStore:
             row = db.execute(
                 """
                 SELECT * FROM mcp_oauth_tokens
-                WHERE token_hash=? AND token_kind=? AND expires_at>=?
+                WHERE token_hash=? AND token_kind=? AND (expires_at IS NULL OR expires_at>=?)
                 """,
                 (_token_hash(raw_token), kind, int(time.time())),
             ).fetchone()
@@ -282,11 +326,13 @@ class CmxOAuthProvider:
         approval_origin: str,
         resource_to_bot: Callable[[str], str | None],
         bot_is_enabled: Callable[[str], bool],
+        bot_remote_profile: Callable[[str], str | None] | None = None,
     ) -> None:
         self.store = store
         self.approval_origin = approval_origin.rstrip("/")
         self.resource_to_bot = resource_to_bot
         self.bot_is_enabled = bot_is_enabled
+        self.bot_remote_profile = bot_remote_profile or (lambda _bot_id: "social_plus")
         self._pending: OrderedDict[str, PendingAuthorization] = OrderedDict()
         self._pending_lock = threading.RLock()
 
@@ -326,6 +372,8 @@ class CmxOAuthProvider:
             scopes = normalize_scopes(params.scopes or [READ_SCOPE])
         except ValueError as exc:
             raise AuthorizeError("invalid_scope", str(exc)) from exc
+        if SOCIAL_SCOPE in scopes and self.bot_remote_profile(bot_id) not in {"social", "social_plus"}:
+            raise AuthorizeError("invalid_scope", "this resident only supports read access")
 
         pending_id = secrets.token_urlsafe(32)
         pending = PendingAuthorization(
@@ -441,11 +489,19 @@ class CmxOAuthProvider:
             raise TokenError("invalid_scope", "refresh scope cannot exceed the original grant")
         if not self.bot_is_enabled(str(refresh_token.subject or "")):
             raise TokenError("invalid_grant", "the CMX resident is unavailable")
+        client_id = str(client.client_id or "")
+        if refresh_token.client_id != client_id:
+            raise TokenError("invalid_grant", "client mismatch")
+        bot_id = str(refresh_token.subject or "")
+        if self.resource_to_bot(refresh_token.resource) != bot_id:
+            raise TokenError("invalid_grant", "resource no longer matches the resident")
+        if SOCIAL_SCOPE in requested and self.bot_remote_profile(bot_id) not in {"social", "social_plus"}:
+            raise TokenError("invalid_scope", "social access is no longer available")
         if not self.store.rotate_family(refresh_token.family_id):
             raise TokenError("invalid_grant", "refresh token was already used or revoked")
         return self._issue_pair(
-            client_id=str(client.client_id or ""),
-            bot_id=str(refresh_token.subject or ""),
+            client_id=client_id,
+            bot_id=bot_id,
             resource=refresh_token.resource,
             scopes=requested,
             family_id=refresh_token.family_id,
@@ -480,6 +536,8 @@ class CmxOAuthProvider:
         scopes = normalize_scopes(scopes)
         if not bot_id or not self.bot_is_enabled(bot_id):
             raise TokenError("invalid_grant", "the CMX resident is unavailable")
+        if SOCIAL_SCOPE in scopes and self.bot_remote_profile(bot_id) not in {"social", "social_plus"}:
+            raise TokenError("invalid_scope", "social access is no longer available")
         if self.resource_to_bot(resource) != bot_id:
             raise TokenError("invalid_grant", "the grant resource no longer matches the resident")
         access = secrets.token_urlsafe(32)

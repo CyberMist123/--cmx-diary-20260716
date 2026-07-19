@@ -10,6 +10,7 @@ from .config import InstanceSettings, Paths, validate_remote_profile
 from .db import Database
 from .mastodon_client import MastodonClient
 from .secrets import read_secret, write_secret
+from .remote_auth import OAuthStore
 
 
 def main() -> None:
@@ -48,14 +49,44 @@ def main() -> None:
     config = sub.add_parser("print-config")
     config.add_argument("--bot", required=True)
 
+    oauth_clients = sub.add_parser("oauth-clients")
+    oauth_clients.add_argument("--bot", required=True)
+    oauth_revoke = sub.add_parser("oauth-revoke")
+    oauth_revoke.add_argument("--bot", required=True)
+    oauth_revoke.add_argument("--client-id", required=True)
+
     args = parser.parse_args()
     paths = Paths.discover()
     paths.ensure()
     db = Database(paths.database)
     db.initialize()
+    oauth_store = OAuthStore(paths.database)
+    oauth_store.initialize()
 
     if args.command == "init":
         print(f"CMX MCP initialized: {paths.database}")
+        return
+
+    if args.command == "oauth-clients":
+        rows = oauth_store.list_clients(args.bot)
+        clients = []
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            clients.append({
+                "client_id": payload.get("client_id"),
+                "client_name": payload.get("client_name"),
+                "redirect_uris": payload.get("redirect_uris", []),
+                "grant_types": payload.get("grant_types", []),
+                "scope": payload.get("scope"),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            })
+        print(json.dumps(clients, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "oauth-revoke":
+        count = oauth_store.revoke_grants(bot_id=args.bot, client_id=args.client_id)
+        print(json.dumps({"bot": args.bot, "client_id": args.client_id, "revoked_grants": count}, ensure_ascii=False))
         return
 
     if args.command == "add-bot":
