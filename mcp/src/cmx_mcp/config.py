@@ -48,6 +48,11 @@ class InstanceSettings:
     max_context_descendants: int = 20
     max_context_chars: int = 16000
     max_media_bytes: int = 20 * 1024 * 1024
+    browse_preview_chars: int = 50
+    browse_max_items: int = 30
+    browse_max_open: int = 3
+    browse_token_budget: int = 5000
+    browse_visit_ttl_seconds: int = 1800
 
     @property
     def public_base_url(self) -> str:
@@ -101,6 +106,11 @@ class InstanceSettings:
             max_media_bytes=_bounded_int(
                 "CMX_MAX_MEDIA_BYTES", 20 * 1024 * 1024, 1024, 100 * 1024 * 1024
             ),
+            browse_preview_chars=_bounded_int("CMX_BROWSE_PREVIEW_CHARS", 50, 20, 200),
+            browse_max_items=_bounded_int("CMX_BROWSE_MAX_ITEMS", 30, 1, 30),
+            browse_max_open=_bounded_int("CMX_BROWSE_MAX_OPEN", 3, 1, 3),
+            browse_token_budget=_bounded_int("CMX_BROWSE_TOKEN_BUDGET", 5000, 1000, 20000),
+            browse_visit_ttl_seconds=_bounded_int("CMX_BROWSE_VISIT_TTL_SECONDS", 1800, 60, 86400),
         )
 
 

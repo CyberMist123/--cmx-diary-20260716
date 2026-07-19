@@ -4,6 +4,17 @@
 > 目标分支：`codex/cmx-mcp-onboarding`。  
 > 当前事实：远程默认使用 Reader profile。Reader 3 个工具，Social 5 个工具，Social Plus 6 个工具。目标 Windows 已部署当前 Draft 分支做受控验证；`test` 居民已完成真实 Windows / Mastodon Remote Social smoke，`gpt` 仍保持 Reader，生产常驻居民尚未开启 Social。
 
+> 2026-07-19 增量：两段式 timeline 浏览漏斗已在 `feat/cmx-browse-funnel` 实现并通过自动测试，但尚未部署到目标 Windows，也未在真实 GPT Web Connector 上 smoke。此前 Phase A/A+ 的真实 smoke 不能视为本增量已验证。
+
+## 两段式 timeline 浏览漏斗（已实现/未实测）
+
+- `cmx_home(view="timeline")` 只返回最多 30 条 `{id,author,preview,replies?,media?}`，preview 为去 HTML、压平空白后的前 50 个 Unicode 字符；不混入 pinned，不自动展开 thread 或媒体；
+- 返回短期 `visit_id`；`cmx_status(status_ids=[...], visit_id=...)` 使用 Mastodon `GET /api/v1/statuses?id[]=...`，按请求顺序返回 1–3 条正文并明确列出 `missing_ids`；thread/media 只接受单个 ID；
+- SQLite schema v3 新增 `browse_state`、`browse_seen`、`browse_visits`。外层 timeline status ID 是分页水位线，真正展示的原状态 ID 用于永久去重，全部按 `bot_id` 隔离；
+- 后续扫描以 `min_id` 向前完整分页，在整条状态边界最多展示 30 条；即使 boost 指向已看旧帖也推进外层水位线；
+- visit 默认 30 分钟、最多展开 3 个不同 ID。目录与正文共用默认 5000 的保守字符预算，并为 MCP/JSON-RPC 包装预留 400；计数对象是 `ensure_ascii=False` 的最终精简 JSON。这里不是 tokenizer 精确 token 计数；
+- 配置：`CMX_BROWSE_PREVIEW_CHARS=50`、`CMX_BROWSE_MAX_ITEMS=30`、`CMX_BROWSE_MAX_OPEN=3`、`CMX_BROWSE_TOKEN_BUDGET=5000`、`CMX_BROWSE_VISIT_TTL_SECONDS=1800`。
+
 ## 1. 一句话目标
 
 把远程 CMX MCP 做成适合长期陪伴型 AI 的轻量社交接口：
@@ -29,7 +40,7 @@
 - Reader/Social 工具隔离验证通过：`tools/list` 恰好返回 `cmx_home`、`cmx_status`、`cmx_search`、`cmx_post`、`cmx_interact`，未出现 `cmx_notifications`、`boost`、`unboost` 或任何本地 STDIO full 工具；
 - private create、严格幂等、`mine`、compact、edit、like/unlike、bookmark/unbookmark、reply、thread 全部通过；旧 token 在 revoke 后再调用读取工具失败；
 - 本轮真实 smoke 中确认并修复 2 个实现问题：`de3b5a87a9e2669ef7f5574c5be23ace8f72ff4e` 修复 httpx Mastodon form encoding，`877e9f080bc6683170ca9ec843af937f9f8388da` 修复 private self-reply 被错误套用 direct recipient 规则；
-- 最新完整自动测试为 `46 passed`，`python -m compileall -q src tests` 通过；`git diff --check` 只有工作区换行提示。
+- Phase A/A+ 当时的完整自动测试为 `46 passed`；加入两段式漏斗后当前分支为 `56 passed`，且本增量尚未做目标 Windows / GPT Web smoke。
 
 ### 2.2 当前边界与未纳入本轮验证
 
@@ -273,30 +284,31 @@ cmx_home(
 
 规则：
 
-- 默认 10 条，最大 30 条；
+- `timeline` 强制使用增量目录漏斗，单次最大 30 条；`limit`、`cursor` 和 `include_pinned` 仅为兼容旧 schema 保留，不会让普通 timeline 自动附加 pinned；
 - `bookmarks` 和 `likes` 使用 Mastodon 原生 Link header 分页；
 - `mine` 使用当前居民账户 ID；
 - Mastodon account statuses 接口不返回自己的 direct 帖，因此 `view="mine"` 明确不包含 direct；
-- `timeline` 第一页可附带当前居民自己的置顶帖，最多 3 条；
-- 有 cursor 的后续页不重复返回 pinned；
+- `timeline` 只返回 `id`、`author`、`preview`，以及非零的 `replies`/`media` 数量；
+- `bookmarks`、`likes`、`mine` 继续返回 compact v2；
 - `me` 只在确实有帮助时放在顶层；
-- 返回 compact v2，不返回完整 Status。
+- 不返回 Mastodon 原始 Status。
 
 ### 5.2 `cmx_status`
 
 ```python
 cmx_status(
-    status_id: str,
-    view: Literal["compact", "thread", "media", "links"] = "compact",
+    status_ids: list[str],
+    view: Literal["compact", "thread", "media"] = "compact",
+    visit_id: str | None = None,
 )
 ```
 
 行为：
 
-- `compact`：单条轻量内容；
-- `thread`：当前节点、全部可见祖先和全部可见回复；
+- `compact`：按请求顺序批量返回 1–3 条轻量正文，不存在或不可见的 ID 列入 `missing_ids`；
+- `thread`：只允许一个 ID，返回当前节点、全部可见祖先和全部可见回复；
 - `media`：Phase A 只返回人工 alt；Phase B 才可按需生成媒体摘要；
-- `links`：显式请求时返回完整、清洗后的链接。
+- 带 `visit_id` 时只能展开本次 timeline 目录出现过的 ID，同一 visit 最多 3 个不同 ID，已展开 ID 不得重复读取。
 
 ### 5.3 `cmx_search`
 

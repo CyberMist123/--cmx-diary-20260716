@@ -56,13 +56,19 @@ class MastodonClient:
         limit: int,
         max_id: str | None = None,
         since_id: str | None = None,
+        min_id: str | None = None,
     ) -> Page:
-        params = _drop_none({"limit": limit, "max_id": max_id, "since_id": since_id})
+        params = _drop_none({"limit": limit, "max_id": max_id, "since_id": since_id, "min_id": min_id})
         response = self._request("GET", "/api/v1/timelines/home", params=params)
         return Page(response.json(), _next_cursor(response))
 
     def get_status(self, status_id: str) -> dict[str, Any]:
         return self._json("GET", f"/api/v1/statuses/{status_id}")
+
+    def get_statuses(self, ids: list[str]) -> list[dict[str, Any]]:
+        if not 1 <= len(ids) <= 3:
+            raise ValueError("status_ids must contain between 1 and 3 IDs")
+        return self._json("GET", "/api/v1/statuses", params=[("id[]", value) for value in ids])
 
     def context(self, status_id: str) -> dict[str, Any]:
         return self._json("GET", f"/api/v1/statuses/{status_id}/context")

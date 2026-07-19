@@ -121,3 +121,27 @@ def test_direct_statuses_are_cached_but_not_indexed(tmp_path: Path):
     db.initialize()
     db.cache_statuses("gpt", [{"id": "d", "account": {"acct": "a"}, "text": "secret", "visibility": "direct"}])
     assert db.search_statuses("gpt", "secret", 5) == []
+
+
+def test_browse_schema_v3_and_bot_isolation(tmp_path: Path):
+    import sqlite3
+    path = tmp_path / "cmx.sqlite3"; db = Database(path); db.initialize()
+    db.commit_browse(bot_id="a", feed="timeline", watermark="10", seen_ids=["source"], visit_id="va", allowed_ids=["source"], budget_limit=5000, budget_used=100, expires_at=9999999999)
+    db.commit_browse(bot_id="b", feed="timeline", watermark="20", seen_ids=[], visit_id="vb", allowed_ids=["other"], budget_limit=5000, budget_used=100, expires_at=9999999999)
+    assert db.get_browse_watermark("a") == "10"
+    assert db.seen_status_ids("a", ["source"]) == {"source"}
+    assert db.seen_status_ids("b", ["source"]) == set()
+    assert db.get_visit("a", "vb") is None
+    with sqlite3.connect(path) as raw:
+        assert raw.execute("SELECT version FROM schema_version").fetchone()[0] == 3
+
+
+def test_visit_rejects_repeat_and_budget_overrun(tmp_path: Path):
+    import pytest
+    db = Database(tmp_path / "cmx.sqlite3"); db.initialize()
+    db.commit_browse(bot_id="a", feed="timeline", watermark="1", seen_ids=[], visit_id="v", allowed_ids=["1", "2", "3"], budget_limit=120, budget_used=10, expires_at=9999999999)
+    db.use_visit(bot_id="a", visit_id="v", opened_ids=["1"], added_budget=10)
+    with pytest.raises(ValueError, match="reopened"):
+        db.use_visit(bot_id="a", visit_id="v", opened_ids=["1"], added_budget=1)
+    with pytest.raises(ValueError, match="budget"):
+        db.use_visit(bot_id="a", visit_id="v", opened_ids=["2"], added_budget=101)

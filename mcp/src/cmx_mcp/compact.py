@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
 from typing import Any
 
@@ -29,6 +30,27 @@ def strip_html(value: str | None) -> str:
     parser = _TextExtractor()
     parser.feed(value or "")
     return parser.text()
+
+
+def timeline_preview(raw: dict[str, Any], max_chars: int = 50) -> dict[str, Any]:
+    """Return the deliberately tiny representation used by remote timeline browsing."""
+    source = raw.get("reblog") or raw
+    account = source.get("account") or {}
+    text = re.sub(r"\s+", " ", strip_html(source.get("content"))).strip()
+    if len(text) > max_chars:
+        text = text[: max(0, max_chars - 1)].rstrip() + "…"
+    result: dict[str, Any] = {
+        "id": str(source.get("id") or raw.get("id") or ""),
+        "author": str(account.get("acct") or account.get("username") or ""),
+        "preview": text,
+    }
+    replies = int(source.get("replies_count") or 0)
+    if replies:
+        result["replies"] = replies
+    media_count = len(source.get("media_attachments") or [])
+    if media_count:
+        result["media"] = media_count
+    return result
 
 
 def compact_account(account: dict[str, Any]) -> dict[str, Any]:

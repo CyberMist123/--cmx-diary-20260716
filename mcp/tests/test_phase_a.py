@@ -10,6 +10,8 @@ from cmx_mcp.scope import READ_SCOPE, SOCIAL_SCOPE, require_request_scope
 from cmx_mcp.server import _remote_post
 from cmx_mcp.server import _remote_interact
 from cmx_mcp.server import _visibility_failure
+from cmx_mcp.server import _remote_timeline_funnel, _budget_statuses
+from cmx_mcp.db import Database
 
 
 def test_compact_v2_omits_empty_fields_and_preserves_reply_and_direct_mentions():
@@ -244,6 +246,97 @@ def test_edit_validation_422_is_not_content_limit_and_redacts_secrets():
         assert "content exceeds instance limit" not in message
         assert "Authorization" not in message
         assert "secret-token" not in message
+    finally:
+        client.close()
+
+
+def _browse_raw(value, *, source=None):
+    item = {"id": value, "content": f"post {value}", "account": {"acct": "alice"}, "media_attachments": []}
+    if source is not None:
+        item["reblog"] = {"id": source, "content": f"post {source}", "account": {"acct": "alice"}, "media_attachments": []}
+    return item
+
+
+def test_timeline_funnel_is_incremental_and_uses_min_id(tmp_path):
+    runtime = _runtime(); runtime.settings = SimpleNamespace(browse_max_items=30, browse_preview_chars=50, browse_token_budget=5000, browse_visit_ttl_seconds=1800)
+    runtime.db = Database(tmp_path / "browse.sqlite3"); runtime.db.initialize(); runtime.audit = lambda *args, **kwargs: None
+    class Client:
+        calls = []; round = 0
+        def home_timeline(self, **kwargs):
+            self.calls.append(kwargs)
+            if self.round == 0:
+                self.round = 1
+                return SimpleNamespace(items=[_browse_raw("3"), _browse_raw("2"), _browse_raw("1")], next_cursor=None)
+            return SimpleNamespace(items=[], next_cursor=None)
+    runtime.client = Client()
+    first = _remote_timeline_funnel(runtime); second = _remote_timeline_funnel(runtime)
+    assert [x["id"] for x in first["items"]] == ["1", "2", "3"]
+    assert second["items"] == []
+    assert runtime.client.calls[-1]["min_id"] == "3"
+
+
+def test_forward_pagination_over_thirty_does_not_skip_old_boost(tmp_path):
+    runtime = _runtime(); runtime.settings = SimpleNamespace(browse_max_items=30, browse_preview_chars=50, browse_token_budget=5000, browse_visit_ttl_seconds=1800)
+    runtime.db = Database(tmp_path / "browse.sqlite3"); runtime.db.initialize(); runtime.audit=lambda *a, **k: None
+    runtime.db.commit_browse(bot_id="gpt", feed="timeline", watermark="100", seen_ids=["old"], visit_id="oldvisit", allowed_ids=[], budget_limit=5000, budget_used=0, expires_at=9999999999)
+    pages = [[_browse_raw(str(i)) for i in range(140, 120, -1)], [_browse_raw("120", source="old"), *[_browse_raw(str(i)) for i in range(119, 100, -1)]]]
+    class Client:
+        calls=[]
+        def home_timeline(self, **kwargs):
+            self.calls.append(kwargs); index=len(self.calls)-1
+            return SimpleNamespace(items=pages[index], next_cursor="next" if index == 0 else None)
+    runtime.client=Client(); result=_remote_timeline_funnel(runtime)
+    assert len(result["items"]) == 30 and result["items"][0]["id"] == "101"
+    assert runtime.db.get_browse_watermark("gpt") == "131"
+    assert all(call["min_id"] == "100" for call in runtime.client.calls)
+
+
+def test_budget_stops_at_whole_status_boundary():
+    runtime=_runtime(); runtime.settings=SimpleNamespace(browse_token_budget=5000)
+    result=_budget_statuses(runtime, ["1", "2"], [{"id":"1","text":"x"*20},{"id":"2","text":"y"}], [], {"budget_limit": 530, "budget_used": 500})
+    assert result["truncated"] is True and result["remaining_ids"]
+    assert all(item["text"] in {"x"*20, "y"} for item in result["items"])
+
+
+def test_remote_status_batches_in_request_order_and_lists_missing():
+    runtime = _runtime()
+    class DB:
+        def get_visit(self, *args): return None
+        def cache_statuses(self, *args): pass
+    class Client:
+        def get_statuses(self, ids): return [_browse_raw("2"), _browse_raw("1")]
+    runtime.db, runtime.client = DB(), Client()
+    tool = build_server(runtime, remote_profile="reader", remote_capabilities=runtime.bot)._tool_manager.get_tool("cmx_status")
+    result = tool.fn(["1", "missing", "2"], "compact", None, _ScopeContext())
+    assert [item["id"] for item in result["items"]] == ["1", "2"]
+    assert result["missing_ids"] == ["missing"]
+    with pytest.raises(ValueError, match="between 1 and 3"):
+        tool.fn(["1", "2", "3", "4"], "compact", None, _ScopeContext())
+
+
+def test_remote_status_visit_allowlist_and_repeat_are_enforced(tmp_path):
+    runtime = _runtime(); runtime.db = Database(tmp_path / "visit.sqlite3"); runtime.db.initialize()
+    runtime.db.commit_browse(bot_id="gpt", feed="timeline", watermark="1", seen_ids=[], visit_id="v", allowed_ids=["1"], budget_limit=5000, budget_used=500, expires_at=9999999999)
+    class Client:
+        def get_statuses(self, ids): return [_browse_raw(value) for value in ids]
+    runtime.client = Client()
+    tool = build_server(runtime, remote_profile="reader", remote_capabilities=runtime.bot)._tool_manager.get_tool("cmx_status")
+    with pytest.raises(ValueError, match="not offered"):
+        tool.fn(["2"], "compact", "v", _ScopeContext())
+    assert tool.fn(["1"], "compact", "v", _ScopeContext())["items"][0]["id"] == "1"
+    with pytest.raises(ValueError, match="reopened"):
+        tool.fn(["1"], "compact", "v", _ScopeContext())
+
+
+def test_mastodon_batch_statuses_uses_native_repeated_query():
+    seen = {}
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = request.url.query.decode(); return httpx.Response(200, json=[])
+    client = object.__new__(MastodonClient)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://mastodon.example")
+    try:
+        assert client.get_statuses(["1", "2", "3"]) == []
+        assert seen["query"] == "id%5B%5D=1&id%5B%5D=2&id%5B%5D=3"
     finally:
         client.close()
 
