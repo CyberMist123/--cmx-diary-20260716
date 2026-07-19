@@ -4,9 +4,9 @@
 > 目标分支：`codex/cmx-mcp-onboarding`。  
 > 当前事实：远程默认使用 Reader profile。Reader 3 个工具，Social 5 个工具，Social Plus 6 个工具。目标 Windows 已部署当前 Draft 分支做受控验证；`test` 居民已完成真实 Windows / Mastodon Remote Social smoke，`gpt` 仍保持 Reader，生产常驻居民尚未开启 Social。
 
-> 2026-07-19 增量：两段式 timeline 浏览漏斗已在 `feat/cmx-browse-funnel` 实现并通过自动测试，但尚未部署到目标 Windows，也未在真实 GPT Web Connector 上 smoke。此前 Phase A/A+ 的真实 smoke 不能视为本增量已验证。
+> 2026-07-20 增量：两段式 timeline 浏览漏斗已在目标 Windows / Mastodon v4.6.3 完成真实 v2→v3 迁移、timeline、批量 statuses、visit 与字符预算 smoke。真实 GPT Web Connector 刷新后仍显示旧 `cmx_status` schema，网页端端到端 smoke 尚未通过。
 
-## 两段式 timeline 浏览漏斗（已实现/未实测）
+## 两段式 timeline 浏览漏斗（已实现/目标 Windows 已实测）
 
 - `cmx_home(view="timeline")` 只返回最多 30 条 `{id,author,preview,replies?,media?}`，preview 为去 HTML、压平空白后的前 50 个 Unicode 字符；不混入 pinned，不自动展开 thread 或媒体；
 - 返回短期 `visit_id`；`cmx_status(status_ids=[...], visit_id=...)` 使用 Mastodon `GET /api/v1/statuses?id[]=...`，按请求顺序返回 1–3 条正文并明确列出 `missing_ids`；thread/media 只接受单个 ID；
@@ -41,7 +41,7 @@
 - Reader/Social 工具隔离验证通过：`tools/list` 恰好返回 `cmx_home`、`cmx_status`、`cmx_search`、`cmx_post`、`cmx_interact`，未出现 `cmx_notifications`、`boost`、`unboost` 或任何本地 STDIO full 工具；
 - private create、严格幂等、`mine`、compact、edit、like/unlike、bookmark/unbookmark、reply、thread 全部通过；旧 token 在 revoke 后再调用读取工具失败；
 - 本轮真实 smoke 中确认并修复 2 个实现问题：`de3b5a87a9e2669ef7f5574c5be23ace8f72ff4e` 修复 httpx Mastodon form encoding，`877e9f080bc6683170ca9ec843af937f9f8388da` 修复 private self-reply 被错误套用 direct recipient 规则；
-- Phase A/A+ 当时的完整自动测试为 `46 passed`；两段式漏斗、P1 审核修复及跨平台 DPAPI 导入修复后，本地当前分支为 `69 passed`。`secrets.py` 仅在 Windows 实际调用时加载 DPAPI；非 Windows 导入正常、调用 fail closed。本增量尚未做目标 Windows / GPT Web smoke。
+- Phase A/A+ 当时的完整自动测试为 `46 passed`；两段式漏斗、P1 审核修复及跨平台 DPAPI 导入修复后，本地当前分支基线为 `69 passed`。`secrets.py` 仅在 Windows 实际调用时加载 DPAPI；非 Windows 导入正常、调用 fail closed。本增量已做目标 Windows smoke；GPT Web Connector 因刷新后仍展示旧 schema 而未通过端到端 smoke。
 
 ### 2.2 当前边界与未纳入本轮验证
 

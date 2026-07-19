@@ -16,7 +16,11 @@ if (-not [int]::TryParse((Get-Content -LiteralPath $PidFile -Raw).Trim(), [ref]$
 $process = Get-CimInstance Win32_Process -Filter "ProcessId=$pidValue" -ErrorAction SilentlyContinue
 if ($process) {
     $expected = Join-Path $PSScriptRoot ".venv\Scripts\cmx-mcp-http.exe"
-    if ($process.ExecutablePath -ne $expected -and $process.CommandLine -notlike "*cmx_mcp.remote*") {
+    if (
+        $process.ExecutablePath -ne $expected `
+        -and $process.CommandLine -notlike "*cmx_mcp.remote*" `
+        -and $process.Name -ne "cmx-mcp-http.exe"
+    ) {
         throw "Refusing to stop unrelated PID $pidValue."
     }
     Stop-Process -Id $pidValue -Force

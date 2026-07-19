@@ -161,14 +161,14 @@ cmx_profile_update
 - 真实写入 smoke 全部通过：private create、严格幂等、`mine`、compact、edit、like/unlike、bookmark/unbookmark、reply、thread 均成功；OAuth revoke 后旧 token 再读失败；
 - 本轮真实 smoke 未发布 public，未测试 direct，未测试 boosts、notifications 或 Phase B/C；
 - 真实 smoke 中确认并修复 2 个实现 bug：`de3b5a87a9e2669ef7f5574c5be23ace8f72ff4e` 修复 httpx Mastodon form encoding，`877e9f080bc6683170ca9ec843af937f9f8388da` 修复 private self-reply 误套用 direct recipient 规则；
-- 两段式浏览漏斗、P1 审核修复及跨平台 DPAPI 导入修复已实现；最新本地完整自动测试为 `69 passed`。本功能尚未部署到目标 Windows，也未在真实 GPT Web Connector 上 smoke；GitHub Actions 状态以 PR 当前 run 为准；
+- 两段式浏览漏斗、P1 审核修复及跨平台 DPAPI 导入修复已实现，并已在目标 Windows / Mastodon v4.6.3 完成真实 v2→v3 迁移、timeline 增量扫描、原生批量 statuses、visit 限制与字符预算截断 smoke：旧 Bot/cache/OAuth/publish dedup 逐项保留，新 browse 表可读写；目录遵守请求 limit 与配置上限，后续只用 `min_id`，水位推进到实际处理的最后一个外层状态；批量读取保持顺序并正确拒绝越权、重复和超出 `max_open`。ChatGPT Web Connector 刷新后仍显示旧的单 ID `cmx_status` schema，因此网页端端到端调用尚未通过；服务端实际 `tools/list` 已确认是 `status_ids` / `view` / `visit_id` 新 schema；
 - 公网 `gpt` 继续保持 Reader，只列出读工具，没有暴露 Token；
 - Nginx 配置检查和 reload 通过，Docker 内 Nginx 可访问 Windows loopback 服务。
 
 待验证：
 
 - 使用一个新的真实邮箱完整执行 `setup-ai.ps1` 新账号创建流程；已有账号的浏览器 OAuth、DPAPI 保存和读链路已经运行验证。
-- ChatGPT 网页端实际连接：当前登录账号为 Plus，界面没有官方文档所述的 Apps → Create 入口；服务器已就绪，需 Pro（只读）或 Business/Enterprise/Edu 账号功能开放后连接。
+- ChatGPT 网页端已存在真实 CMX Connector；刷新后仍显示缓存的旧 `cmx_status(status_id=...)` schema，与服务端当前新 schema 不一致。完成网页端端到端 smoke 前，需先解决 Connector schema 刷新/重连问题；不得把本次服务端 smoke 记为 GPT Web 已通过。
 - 生产常驻居民是否开启 Remote Social 仍待单独决策；当前只在目标 Windows 上对 `test` 做了受控验证。
 - boosts、notifications 以及 Phase B/C 仍未纳入本轮真实 smoke。
 
@@ -247,7 +247,7 @@ MCP 的 SQLite 搜索缓存可以重建，不是 Mastodon 恢复必要条件。`
 | Claude Code 客户端接入 | `cmx-gpt` 已连接 |
 | Telegram/Fable 客户端接入 | 未纳入本次验证 |
 | 远程 Streamable HTTP MCP | 已在目标 Windows 部署当前 Draft 分支并完成 `test` 受控真实 smoke；生产常驻居民仍未开启 Social |
-| ChatGPT 网页端连接 | 受当前 Plus 账号功能门槛阻塞 |
+| ChatGPT 网页端连接 | 已连接但刷新后仍显示旧 schema；端到端 smoke 未通过 |
 | 独立 CMX 前端 | 计划中 |
 | 公共联邦 | 永不实施 |
 
