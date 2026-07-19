@@ -144,7 +144,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 https://pi.ler428.xyz/mcp/gpt
 ```
 
-远程服务只监听 `127.0.0.1:8766`，由现有 Nginx 和 Cloudflare Tunnel 转发。它支持 OAuth 2.1 动态注册、PKCE、一次性 code、access/refresh token、刷新轮换和撤销。批准页只在本机 `http://127.0.0.1:8766/oauth/approve` 打开；外部客户端不能远程批准自己。所有远程凭据只以 SHA-256 hash 保存在 `runtime/cmx.sqlite3`。
+远程服务只监听 `127.0.0.1:8766`，由现有 Nginx 和 Cloudflare Tunnel 转发。它支持 OAuth 2.1 动态注册、PKCE、一次性 code、access/refresh token、刷新轮换和撤销。OAuth issuer 统一为公网 origin 加尾斜杠；所有居民 Protected Resource Metadata 的 `authorization_servers[0]` 与 Authorization Server Metadata 的 `issuer` 逐字符一致，而居民 `resource` 仍为不带尾斜杠的 `/mcp/<bot_id>`。两个 discovery 文档均返回 `Cache-Control: no-store`；SDK 原始 `max-age=3600` 已覆盖，因此修复后立即复测无需等待一小时。批准页只在本机 `http://127.0.0.1:8766/oauth/approve` 打开；外部客户端不能远程批准自己。所有远程凭据只以 SHA-256 hash 保存在 `runtime/cmx.sqlite3`。
 
 状态与停用：
 

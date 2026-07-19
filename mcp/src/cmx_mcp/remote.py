@@ -34,6 +34,24 @@ _BEARER_RE = re.compile(r"^Bearer\s+([^\s]+)$", re.IGNORECASE)
 MAX_REQUEST_BYTES = 1024 * 1024
 
 
+class _NoStoreResponse:
+    def __init__(self, app: Any):
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        async def send_no_store(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"cache-control"
+                ]
+                message = {**message, "headers": [*headers, (b"cache-control", b"no-store")]}
+            await send(message)
+
+        await self.app(scope, receive, send_no_store)
+
+
 @dataclass(frozen=True, slots=True)
 class RemoteSettings:
     bind_host: str
@@ -43,6 +61,11 @@ class RemoteSettings:
     @property
     def approval_origin(self) -> str:
         return f"http://127.0.0.1:{self.port}"
+
+    @property
+    def oauth_issuer(self) -> str:
+        """Canonical RFC 8414 issuer shared by every discovery document."""
+        return f"{self.public_origin}/"
 
     @property
     def public_host(self) -> str:
@@ -144,7 +167,7 @@ def create_remote_app(paths: Paths | None = None) -> Starlette:
         return JSONResponse(
             {
                 "resource": resource,
-                "authorization_servers": [settings.public_origin],
+                "authorization_servers": [settings.oauth_issuer],
                 "bearer_methods_supported": ["header"],
                 "scopes_supported": ([READ_SCOPE, SOCIAL_SCOPE]
                                       if database.get_bot(bot_id).remote_profile in {"social", "social_plus"}
@@ -214,7 +237,7 @@ main{{max-width:560px;margin:8vh auto;padding:32px;background:#1f2937;border-rad
 
     oauth_routes = create_auth_routes(
         provider=provider,
-        issuer_url=AnyHttpUrl(settings.public_origin),
+        issuer_url=AnyHttpUrl(settings.oauth_issuer),
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             client_secret_expiry_seconds=0,
@@ -223,6 +246,10 @@ main{{max-width:560px;margin:8vh auto;padding:32px;background:#1f2937;border-rad
         ),
         revocation_options=RevocationOptions(enabled=True),
     )
+    for route in oauth_routes:
+        if route.path == "/.well-known/oauth-authorization-server":
+            route.app = _NoStoreResponse(route.app)
+            break
 
     routes = [
         *oauth_routes,

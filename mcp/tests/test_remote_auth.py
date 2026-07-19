@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 from mcp.server.auth.provider import AuthorizationParams, AuthorizeError
 from mcp.shared.auth import OAuthClientInformationFull
+from starlette.testclient import TestClient
 
+from cmx_mcp.config import Paths
+from cmx_mcp.db import Database
 from cmx_mcp.remote_auth import CmxOAuthProvider, OAuthStore, READ_SCOPE, SOCIAL_SCOPE
-from cmx_mcp.remote import _consent_copy
+from cmx_mcp.remote import _consent_copy, create_remote_app
 
 
 def _client() -> OAuthClientInformationFull:
@@ -47,6 +51,64 @@ def _params(resource: str = "https://pi.example/mcp/gpt", scopes=None) -> Author
         redirect_uri_provided_explicitly=True,
         resource=resource,
     )
+
+
+@pytest.mark.parametrize("profile", ["reader", "social"])
+def test_discovery_uses_one_canonical_issuer_for_every_bot(tmp_path, monkeypatch, profile):
+    paths = Paths(
+        home=tmp_path / "mcp",
+        runtime=tmp_path / "mcp" / "runtime",
+        database=tmp_path / "mcp" / "runtime" / "cmx.sqlite3",
+        secrets=tmp_path / "mcp" / "runtime" / "secrets",
+        logs=tmp_path / "mcp" / "runtime" / "logs",
+    )
+    database = Database(paths.database)
+    database.initialize()
+    bot_ids = ["gpt", "second-bot"]
+    for bot_id in bot_ids:
+        database.upsert_bot(
+            bot_id=bot_id,
+            display_name=bot_id,
+            profile="resident",
+            media_root=tmp_path / "media" / bot_id,
+            token_ref=f"{bot_id}.token.dpapi",
+            default_audience="residents",
+            allow_public=False,
+            remote_profile=profile,
+        )
+
+    class FakeRuntime:
+        def __init__(self, bot_id):
+            self.bot = database.get_bot(bot_id)
+            self.settings = SimpleNamespace(max_items=30)
+            self.client = SimpleNamespace(close=lambda: None)
+            self.db = database
+
+        def close(self):
+            self.client.close()
+
+    monkeypatch.setenv("WEB_DOMAIN", "pi.example")
+    monkeypatch.setattr("cmx_mcp.remote.Runtime", FakeRuntime)
+    app = create_remote_app(paths)
+
+    with TestClient(app, base_url="https://pi.example") as client:
+        authorization_metadata = client.get("/.well-known/oauth-authorization-server")
+        assert authorization_metadata.status_code == 200
+        assert authorization_metadata.headers["cache-control"] == "no-store"
+        issuer = authorization_metadata.json()["issuer"]
+        assert issuer == "https://pi.example/"
+
+        for bot_id in bot_ids:
+            protected_metadata = client.get(
+                f"/.well-known/oauth-protected-resource/mcp/{bot_id}"
+            )
+            assert protected_metadata.status_code == 200
+            document = protected_metadata.json()
+            assert document["resource"] == f"https://pi.example/mcp/{bot_id}"
+            assert document["authorization_servers"][0] == issuer
+            expected_scopes = [READ_SCOPE] if profile == "reader" else [READ_SCOPE, SOCIAL_SCOPE]
+            assert document["scopes_supported"] == expected_scopes
+            assert protected_metadata.headers["cache-control"] == "no-store"
 
 
 def test_refresh_scopes_are_a_subset_of_original_grant(tmp_path):
