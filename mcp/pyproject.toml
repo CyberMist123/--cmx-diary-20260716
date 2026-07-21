@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmx-mcp"
-version = "0.3.0rc1"
+version = "0.3.0rc2"
 description = "Token-efficient local and authenticated remote MCP for a private CMX instance"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -9,6 +9,20 @@
 
 本文件记录可部署版本的用户可见变化。运行状态与边界仍以 `PROJECT.md` 为准。
 
+## v0.3.0-rc.2 — 2026-07-22
+
+状态：2026-07-22 与 #6/#8 合并链一同进入 `main`，目标 Windows 真实 smoke 结果见 PR #7 检查单。
+
+- CMX/Mastodon 本地动态上限由 500 调整为 5000 字符；
+- 使用版本锁定的 Mastodon v4.6.3 validator 覆盖文件，不 fork 整个 Mastodon，也不维护大型自定义镜像；
+- 覆盖文件只读挂载到 `web` 和 `sidekiq`，网页端通过 `/api/v2/instance` 自动获得 `max_characters=5000`；
+- MCP 的普通发布、回复和链接引用统一使用默认 5000 字符上限；
+- `CMX_MAX_STATUS_CHARS` 允许主动调低，但不能超过 Mastodon 的 5000 字符服务端上限；
+- CI 新增 Compose 挂载和 Mastodon override 契约测试；
+- 收藏继续遵循 Mastodon 原生行为，不向作者生成通知；点赞仍应由 Mastodon 原生生成通知，不增加私有通知魔改。
+
+变更前快照：`archive/main-before-cmx-5000-20260719`；本轮合并链快照：`archive/main-before-cmx-mcp-merge-20260722`。
+
 ## v0.3.0-rc.1 — 2026-07-18
 
 状态：目标 Windows 上的真实 `gpt` 本地读链路、Claude Code 和公网 OAuth 只读 MCP 已验证；新账号向导与本地写工具仍待人工验收。

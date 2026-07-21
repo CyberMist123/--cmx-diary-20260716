@@ -171,6 +171,10 @@ def build_server(
             text = text.strip()
             if not text:
                 raise ValueError("text is required")
+            if len(text) > runtime.settings.max_status_chars:
+                raise ValueError(
+                    f"text exceeds the configured {runtime.settings.max_status_chars}-character limit"
+                )
             media_ids = [str(item) for item in (media_ids or [])]
             if len(media_ids) > 4:
                 raise ValueError("at most four media_ids are allowed")

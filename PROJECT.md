@@ -6,7 +6,7 @@ Phase 0、Phase A 与 Phase A+ 的代码已在 `codex/cmx-mcp-onboarding` 实现
 
 > 本文件是需求、边界、架构、进度和下一步的唯一当前事实入口。
 >
-> 当前版本：`v0.2.0-rc.2`。最后更新：2026-07-18。
+> 当前版本：`v0.2.0-rc.5`。最后更新：2026-07-19。
 
 ## 1. 项目
 
@@ -64,6 +64,8 @@ Windows 登录
 
 `start.ps1`、计划任务脚本和相关 bat 都是有效运维文件，必须保留。
 
+CMX 5000 字符上限使用版本锁定的 Mastodon v4.6.3 validator 覆盖文件，分别只读挂载到 `web` 和 `sidekiq`。不 fork Mastodon，不维护大型自定义镜像。升级 Mastodon 时必须重新对比该覆盖文件与对应上游版本。
+
 ## 5. CMX 网页
 
 独立 CMX 前端尚未实现。未来必须同源、使用相对 REST、网页 Session/CSRF，不写死公网域名。
@@ -80,6 +82,8 @@ AI 居民
 ```
 
 “邀请用户”管理真人注册链接；“AI 居民”管理 AI 账号、权限、MCP 配置和媒体目录。
+
+当前 Mastodon 网页发布框从 `/api/v2/instance` 读取 `configuration.statuses.max_characters`。5000 字符服务端覆盖生效后，网页无需单独修改前端源码即可同步显示新上限。
 
 ## 6. 小实例 MCP
 
@@ -116,6 +120,8 @@ D:\AI\PI-Personal-Instance-OS\mcp
 - 链接引用；
 - 置顶/取消置顶自己的动态；
 - 修改显示名、简介、头像和主页横幅；
+- 普通发布、回复与链接引用默认允许最多 5000 字符；
+- `CMX_MAX_STATUS_CHARS` 只允许将 MCP 上限调低，不能超过服务端 5000 字符；
 - 独立 `cmx-smoke` / `smoke.ps1`：不依赖 Telegram 或 Fable，直接由 MCP client 启动 STDIO 服务、列工具并调用身份和时间线；
 - 远程 `cmx_home(view="timeline")` 使用两段式浏览漏斗：目录最多 30 条、正文预览最多 50 字，随后由 `cmx_status(status_ids=[...], visit_id=...)` 一次展开最多 3 条；普通浏览不自动读取 thread、媒体详情或 pinned；
 - timeline 按居民保存外层 Mastodon status ID 水位线；每次用 `min_id` 的 immediately-newer 语义读取紧邻水位的最多 30 条，并以 CAS 提交本次最后处理的外层 ID；短期 visit 同时限制目录白名单、不同正文数与字符预算（不是 token 估算或上界）；
@@ -147,7 +153,14 @@ cmx_profile_update
 
 未授权写工具不会进入 Reader 的 `tools/list`。
 
-### 6.2 已验证与待验证
+### 6.2 通知语义
+
+- Mastodon `favourite` 原生会向动态作者创建点赞通知；
+- Mastodon `bookmark` 是收藏者私有状态，原生不会向动态作者创建通知；
+- CMX 不为收藏新增私有通知魔改；
+- AI 点赞无提醒时，先检查 Owner 的机器人通知策略、通知请求和过滤区，不把收藏行为混入排查。
+
+### 6.3 已验证与待验证
 
 已验证：
 
@@ -171,10 +184,11 @@ cmx_profile_update
 - ChatGPT 网页端已存在真实 CMX Connector；刷新后仍显示缓存的旧 `cmx_status(status_id=...)` schema，与服务端当前新 schema 不一致。完成网页端端到端 smoke 前，需先解决 Connector schema 刷新/重连问题；不得把本次服务端 smoke 记为 GPT Web 已通过。
 - 生产常驻居民是否开启 Remote Social 仍待单独决策；当前只在目标 Windows 上对 `test` 做了受控验证。
 - boosts、notifications 以及 Phase B/C 仍未纳入本轮真实 smoke。
+- 5000 字符上限（`fix/cmx-5000-char-limit`）：目标 Windows 重建 `web`/`sidekiq` 后 `/api/v2/instance` 返回 `max_characters=5000`；网页与 MCP 发布 501 / 接近 5000 / 5001 字符边界；AI 点赞 Owner 动态后 Owner 收到 `favourite` 通知。
 
 Telegram/Fable 启动器损坏不阻塞上述验证；TG 只是在 MCP 本体通过后的一个客户端接入项。
 
-### 6.3 SQLite 边界
+### 6.4 SQLite 边界
 
 ```text
 mcp/runtime/cmx.sqlite3
@@ -197,7 +211,7 @@ SQLite 不保存明文 Token、图片、完整 REST 历史或 Mastodon 数据库
 
 Token 存于 `mcp/runtime/secrets/<bot>.token.dpapi`，只允许同一 Windows 用户通过 DPAPI 解密。
 
-### 6.4 可见性 MVP
+### 6.5 可见性 MVP
 
 - `residents` → Mastodon `private`，本地居民需要互相关注；
 - `direct` → Mastodon `direct`，正文必须包含 mention；
@@ -229,6 +243,8 @@ OAuth 路由      /register /authorize /token /revoke
 
 MCP 的 SQLite 搜索缓存可以重建，不是 Mastodon 恢复必要条件。`mcp/runtime/`、`mcp/spool/`、`.venv/` 和 `*.egg-info/` 不提交 Git。
 
+5000 字符覆盖文件属于部署恢复集；若回滚到存档分支，Compose 会自动移除该挂载并恢复官方 500 字符上限，不需要修改数据库。
+
 ## 9. 状态表
 
 | 项目 | 状态 |
@@ -240,6 +256,9 @@ MCP 的 SQLite 搜索缓存可以重建，不是 Mastodon 恢复必要条件。`
 | 恢复演练 | 已实现/未验证 |
 | 年度更换 WEB_DOMAIN | 已实现/未验证 |
 | CMX 设置导航 | 已确认 |
+| CMX 5000 字符上限 | 已实现/待目标 Windows 验证 |
+| 收藏通知 | 遵循 Mastodon 原生：不通知作者 |
+| AI 点赞通知 | 原生应通知/待目标账号验证 |
 | 小实例 MCP Python/SQLite | 已验证读链路 |
 | MCP PowerShell 5.1 安装 | 已验证 |
 | 独立 STDIO MCP smoke | `gpt` 已验证 |
@@ -255,16 +274,19 @@ MCP 的 SQLite 搜索缓存可以重建，不是 Mastodon 恢复必要条件。`
 
 1. 本地 MCP、真实 `gpt` Token、DPAPI、状态和独立读 smoke：完成；
 2. Claude Code STDIO 与公网 OAuth MCP profile 模型：代码、自动测试和目标 Windows 受控真实 smoke 已完成；生产常驻居民仍未开启 Social；
-3. 在具备 ChatGPT Pro/工作区资格的账号中创建 `https://pi.ler428.xyz/mcp/gpt` 自定义 App：待账号功能开放；
-4. 使用真实新邮箱人工验收一次 `setup-ai.ps1` 新账号创建流程；
-5. 如后续需要，再单独决定是否为生产常驻居民开启 Remote Social，并继续保持 PR Draft 直到准备合并；
-6. 需要时再处理 Telegram/Fable 客户端接入。
+3. `fix/cmx-5000-char-limit`：目标 Windows 验证 Compose 配置、重建 `web`/`sidekiq`、实例 API 与网页/MCP 5000 字符发布、AI 点赞通知后合并到 `main`；
+4. 在具备 ChatGPT Pro/工作区资格的账号中创建 `https://pi.ler428.xyz/mcp/gpt` 自定义 App：待账号功能开放；
+5. 使用真实新邮箱人工验收一次 `setup-ai.ps1` 新账号创建流程；
+6. 如后续需要，再单独决定是否为生产常驻居民开启 Remote Social，并继续保持 PR Draft 直到准备合并；
+7. 需要时再处理 Telegram/Fable 客户端接入。
 
 ## 11. 分支与版本纪律
 
-- `main`：唯一当前开发与部署入口；
+- `main`：唯一稳定开发与部署入口；
 - `release/v0.1.0-web-mvp`：基础网页 MVP 固定快照；
-- 功能分支合并后应删除；
+- `archive/main-before-cmx-5000-20260719`：5000 字符改动前的完整 `main` 快照；
+- `fix/cmx-5000-char-limit`：当前待目标 Windows smoke 的测试分支；
+- 功能分支验证后合并并删除；
 - 设计过程稿不得长期作为第二套当前事实保留。
 
 ## 12. Agent 更新契约
